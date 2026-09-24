@@ -19,42 +19,42 @@ Every robot runs an autonomous decision-making loop on onboard edge hardware (Ra
 ```mermaid
 flowchart TD
     subgraph tier1 ["Tier 1: Onboard Autonomous Edge Stack (Per Robot: RPi4 / Jetson Nano)"]
-        Sensors["<b>Sensors & Telemetry</b><br/>• 2D LiDAR Rangefinder (10 Hz)<br/>• Wheel Odometry & IMU Fusion<br/>• Kinetic Battery Gauge"]
+        Sensors["<b>Sensors and Telemetry</b><br/>• 2D LiDAR Rangefinder (10 Hz)<br/>• Wheel Odometry and IMU Fusion<br/>• Kinetic Battery Gauge"]
         BM["<b>Battery State Machine</b><br/>• Continuous Discharge Monitor<br/>• Auto-Charge Routing (&lt;15%)<br/>• Auction Exclusion (&lt;20%)"]
         TA["<b>Task Allocator (P2P Auction)</b><br/>• Distributed Contract Net Protocol<br/>• Marginal Cost Computation<br/>• Dynamic Winner Awarding"]
         GP["<b>Rolling-Horizon Global Planner</b><br/>• 2D Occupancy Grid A* Pathfinding<br/>• Dynamic Obstacle Inflation (0.50m)<br/>• 8.0-Second Lookahead Window"]
-        CR["<b>Conflict & Deadlock Resolver</b><br/>• Stalled AMR Monitor (&gt;3.0s)<br/>• Composite Priority Evaluation<br/>• Virtual Corridor Token Engine"]
+        CR["<b>Conflict and Deadlock Resolver</b><br/>• Stalled AMR Monitor (&gt;3.0s)<br/>• Composite Priority Evaluation<br/>• Virtual Corridor Token Engine"]
         LP["<b>ORCA Local Controller (20 Hz)</b><br/>• Reciprocal Velocity Obstacle Cones<br/>• 2D Convex Half-Plane Optimization<br/>• Safe-Stop Fallback Routine"]
-        Motors["<b>Chassis Actuation</b><br/>• Differential Drive Controller<br/>• Wheel Actuators (v, ω)"]
+        Motors["<b>Chassis Actuation</b><br/>• Differential Drive Controller<br/>• Target Wheel Velocities"]
     end
 
     subgraph tier2 ["Tier 2: Brokerless DDS Peer-to-Peer Mesh (Multicast / CycloneDDS)"]
-        StateTopic["<b>State Broadcast Channel</b><br/><code>/fleet/{id}/state</code><br/>• 20 Hz — QoS: BEST_EFFORT, 100ms Deadline<br/>• Current Pose (x, y, θ), Velocity (v, ω), Battery%"]
+        StateTopic["<b>State Broadcast Channel</b><br/><code>/fleet/{id}/state</code><br/>• 20 Hz — QoS: BEST_EFFORT, 100ms Deadline<br/>• Current Pose x, y, theta, Speed v, w, Battery%"]
         IntentTopic["<b>Intent Broadcast Channel</b><br/><code>/fleet/{id}/intent</code><br/>• 5 Hz — QoS: RELIABLE, TRANSIENT_LOCAL<br/>• 8.0s Planned Trajectory, Priority Score, Active Token"]
-        CoordTopic["<b>Coordination & Auction Channel</b><br/><code>/fleet/{id}/bid</code> & <code>/fleet/{id}/conflict</code><br/>• Event-Driven — QoS: RELIABLE<br/>• Auction Bids, Yield Negotiations, Mutex Tokens"]
-        RelayEngine["<b>Multi-Hop Relay Cache & Deduplication</b><br/>• Store-and-Forward Gossip Protocol<br/>• Mesh Relay Across Warehouse RF Dead Zones"]
+        CoordTopic["<b>Coordination and Auction Channel</b><br/><code>/fleet/{id}/bid</code> and <code>/fleet/{id}/conflict</code><br/>• Event-Driven — QoS: RELIABLE<br/>• Auction Bids, Yield Negotiations, Mutex Tokens"]
+        RelayEngine["<b>Multi-Hop Relay Cache and Deduplication</b><br/>• Store-and-Forward Gossip Protocol<br/>• Mesh Relay Across Warehouse RF Dead Zones"]
     end
 
-    subgraph tier3 ["Tier 3: Fleet Oversight & Monitoring Dashboard (Read-Only)"]
+    subgraph tier3 ["Tier 3: Fleet Oversight and Monitoring Dashboard (Read-Only)"]
         Bridge["<b>rosbridge WebSocket Server</b><br/>• Port 9090 — JSON Telemetry Stream<br/>• Read-Only Safety Guard (Zero Control Commands)"]
-        ReactUI["<b>React 18 + Leaflet Operator Dashboard</b><br/>• Interactive Warehouse Floor Plan & Live AMR Poses<br/>• Trajectory Paths, Heading Vectors & Conflict Rings<br/>• Real-Time Fleet KPIs & Battery Telemetry Feed"]
+        ReactUI["<b>React 18 + Leaflet Operator Dashboard</b><br/>• Interactive Warehouse Floor Plan and Live AMR Poses<br/>• Trajectory Paths, Heading Vectors and Conflict Rings<br/>• Real-Time Fleet KPIs and Battery Telemetry Feed"]
     end
 
     %% Tier 1 Onboard Control Loop
-    Sensors -->|Raw Scans & Wheel Odom| GP
+    Sensors -->|Raw Scans and Wheel Odometry| GP
     Sensors -->|Neighbor LiDAR Rays| LP
     BM -->|Low Battery Signal| TA
     BM -->|Charging Waypoint| GP
     TA -->|Assigned Mission Goal| GP
     GP -->|Preferred Velocity v_pref| LP
-    CR -->|Yield & Priority Directives| LP
-    LP -->|cmd_vel (v, ω)| Motors
+    CR -->|Yield and Priority Directives| LP
+    LP -->|Target Velocity cmd_vel| Motors
 
     %% Tier 1 to Tier 2 DDS Mesh Pub/Sub
     Sensors -.->|Publish Telemetry| StateTopic
     GP -.->|Publish Intent| IntentTopic
-    CR <-->|Negotiate Priority & Tokens| CoordTopic
-    TA <-->|Broadcast Bids & Awards| CoordTopic
+    CR <-->|Negotiate Priority and Tokens| CoordTopic
+    TA <-->|Broadcast Bids and Awards| CoordTopic
     CoordTopic <-->|Packet Forwarding| RelayEngine
 
     %% Tier 2 to Tier 3 Dashboard Telemetry Stream

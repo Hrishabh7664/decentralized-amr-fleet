@@ -74,42 +74,42 @@ In traditional warehouse automation, a central server calculates paths for all A
 ```mermaid
 flowchart TD
     subgraph tier1 ["Tier 1: Onboard Autonomous Edge Stack (Per Robot: RPi4 / Jetson Nano)"]
-        Sensors["<b>Sensors & Telemetry</b><br/>• 2D LiDAR Rangefinder (10 Hz)<br/>• Wheel Odometry & IMU Fusion<br/>• Kinetic Battery Gauge"]
+        Sensors["<b>Sensors and Telemetry</b><br/>• 2D LiDAR Rangefinder (10 Hz)<br/>• Wheel Odometry and IMU Fusion<br/>• Kinetic Battery Gauge"]
         BM["<b>Battery State Machine</b><br/>• Continuous Discharge Monitor<br/>• Auto-Charge Routing (&lt;15%)<br/>• Auction Exclusion (&lt;20%)"]
         TA["<b>Task Allocator (P2P Auction)</b><br/>• Distributed Contract Net Protocol<br/>• Marginal Cost Computation<br/>• Dynamic Winner Awarding"]
         GP["<b>Rolling-Horizon Global Planner</b><br/>• 2D Occupancy Grid A* Pathfinding<br/>• Dynamic Obstacle Inflation (0.50m)<br/>• 8.0-Second Lookahead Window"]
-        CR["<b>Conflict & Deadlock Resolver</b><br/>• Stalled AMR Monitor (&gt;3.0s)<br/>• Composite Priority Evaluation<br/>• Virtual Corridor Token Engine"]
+        CR["<b>Conflict and Deadlock Resolver</b><br/>• Stalled AMR Monitor (&gt;3.0s)<br/>• Composite Priority Evaluation<br/>• Virtual Corridor Token Engine"]
         LP["<b>ORCA Local Controller (20 Hz)</b><br/>• Reciprocal Velocity Obstacle Cones<br/>• 2D Convex Half-Plane Optimization<br/>• Safe-Stop Fallback Routine"]
-        Motors["<b>Chassis Actuation</b><br/>• Differential Drive Controller<br/>• Wheel Actuators (v, ω)"]
+        Motors["<b>Chassis Actuation</b><br/>• Differential Drive Controller<br/>• Target Wheel Velocities"]
     end
 
     subgraph tier2 ["Tier 2: Brokerless DDS Peer-to-Peer Mesh (Multicast / CycloneDDS)"]
-        StateTopic["<b>State Broadcast Channel</b><br/><code>/fleet/{id}/state</code><br/>• 20 Hz — QoS: BEST_EFFORT, 100ms Deadline<br/>• Current Pose (x, y, θ), Velocity (v, ω), Battery%"]
+        StateTopic["<b>State Broadcast Channel</b><br/><code>/fleet/{id}/state</code><br/>• 20 Hz — QoS: BEST_EFFORT, 100ms Deadline<br/>• Current Pose x, y, theta, Speed v, w, Battery%"]
         IntentTopic["<b>Intent Broadcast Channel</b><br/><code>/fleet/{id}/intent</code><br/>• 5 Hz — QoS: RELIABLE, TRANSIENT_LOCAL<br/>• 8.0s Planned Trajectory, Priority Score, Active Token"]
-        CoordTopic["<b>Coordination & Auction Channel</b><br/><code>/fleet/{id}/bid</code> & <code>/fleet/{id}/conflict</code><br/>• Event-Driven — QoS: RELIABLE<br/>• Auction Bids, Yield Negotiations, Mutex Tokens"]
-        RelayEngine["<b>Multi-Hop Relay Cache & Deduplication</b><br/>• Store-and-Forward Gossip Protocol<br/>• Mesh Relay Across Warehouse RF Dead Zones"]
+        CoordTopic["<b>Coordination and Auction Channel</b><br/><code>/fleet/{id}/bid</code> and <code>/fleet/{id}/conflict</code><br/>• Event-Driven — QoS: RELIABLE<br/>• Auction Bids, Yield Negotiations, Mutex Tokens"]
+        RelayEngine["<b>Multi-Hop Relay Cache and Deduplication</b><br/>• Store-and-Forward Gossip Protocol<br/>• Mesh Relay Across Warehouse RF Dead Zones"]
     end
 
-    subgraph tier3 ["Tier 3: Fleet Oversight & Monitoring Dashboard (Read-Only)"]
+    subgraph tier3 ["Tier 3: Fleet Oversight and Monitoring Dashboard (Read-Only)"]
         Bridge["<b>rosbridge WebSocket Server</b><br/>• Port 9090 — JSON Telemetry Stream<br/>• Read-Only Safety Guard (Zero Control Commands)"]
-        ReactUI["<b>React 18 + Leaflet Operator Dashboard</b><br/>• Interactive Warehouse Floor Plan & Live AMR Poses<br/>• Trajectory Paths, Heading Vectors & Conflict Rings<br/>• Real-Time Fleet KPIs & Battery Telemetry Feed"]
+        ReactUI["<b>React 18 + Leaflet Operator Dashboard</b><br/>• Interactive Warehouse Floor Plan and Live AMR Poses<br/>• Trajectory Paths, Heading Vectors and Conflict Rings<br/>• Real-Time Fleet KPIs and Battery Telemetry Feed"]
     end
 
     %% Tier 1 Onboard Control Loop
-    Sensors -->|Raw Scans & Wheel Odom| GP
+    Sensors -->|Raw Scans and Wheel Odometry| GP
     Sensors -->|Neighbor LiDAR Rays| LP
     BM -->|Low Battery Signal| TA
     BM -->|Charging Waypoint| GP
     TA -->|Assigned Mission Goal| GP
     GP -->|Preferred Velocity v_pref| LP
-    CR -->|Yield & Priority Directives| LP
-    LP -->|cmd_vel (v, ω)| Motors
+    CR -->|Yield and Priority Directives| LP
+    LP -->|Target Velocity cmd_vel| Motors
 
     %% Tier 1 to Tier 2 DDS Mesh Pub/Sub
     Sensors -.->|Publish Telemetry| StateTopic
     GP -.->|Publish Intent| IntentTopic
-    CR <-->|Negotiate Priority & Tokens| CoordTopic
-    TA <-->|Broadcast Bids & Awards| CoordTopic
+    CR <-->|Negotiate Priority and Tokens| CoordTopic
+    TA <-->|Broadcast Bids and Awards| CoordTopic
     CoordTopic <-->|Packet Forwarding| RelayEngine
 
     %% Tier 2 to Tier 3 Dashboard Telemetry Stream
@@ -130,7 +130,7 @@ For comprehensive details on message interfaces, edge compute budgets, and seque
 flowchart TD
     subgraph S1 ["Stage 1: Global Path Planning (Rolling-Horizon A*)"]
         Grid["<b>Warehouse Costmap Representation</b><br/>• 2D Occupancy Grid (Resolution: 0.50 m/cell)<br/>• Dynamic Obstacle Inflation (Safety Radius: 0.50m)"]
-        AStar["<b>8-Connected 2D A* Path Search</b><br/>• Admissible Octile Distance Heuristic<br/>• Finds Optimal Global Path around Shelves & Obstacles"]
+        AStar["<b>8-Connected 2D A* Path Search</b><br/>• Admissible Octile Distance Heuristic<br/>• Finds Optimal Global Path around Shelves and Obstacles"]
         Horizon["<b>Rolling-Horizon Window Extractor</b><br/>• Extracts 8.0-Second Local Lookahead Horizon (4.0m)<br/>• Computes Preferred Velocity Vector v_pref (0.5 m/s)"]
 
         Grid -->|Inflated Costmap| AStar
@@ -138,11 +138,11 @@ flowchart TD
     end
 
     subgraph S2 ["Stage 2: Local Reactive Collision Avoidance (2D ORCA @ 20 Hz)"]
-        Peers["<b>Peer & Obstacle State Tracking</b><br/>• DDS <code>/fleet/{id}/state</code> Telemetry at 20 Hz<br/>• Relative Position & Velocity Vectors: p = p_B - p_A, v = v_A - v_B"]
-        VOCone["<b>Velocity Obstacle (VO) Cone Generation</b><br/>• Truncated Collision Cones for Neighbors within 3.0m<br/>• Accounts for Combined Robot Radii (r_A + r_B = 0.70m)"]
+        Peers["<b>Peer and Obstacle State Tracking</b><br/>• DDS <code>/fleet/{id}/state</code> Telemetry at 20 Hz<br/>• Relative Position and Velocity Vectors"]
+        VOCone["<b>Velocity Obstacle Cone Generation</b><br/>• Truncated Collision Cones for Neighbors within 3.0m<br/>• Accounts for Combined Robot Radii (0.70m)"]
         HalfPlane["<b>Reciprocal Responsibility Half-Planes</b><br/>• 50% Reciprocal Velocity Displacement (u / 2)<br/>• Normal Vector n Defines Safe Feasible Velocity Half-Plane"]
         LPSolver["<b>2D Linear Program Solver (20 Hz)</b><br/>• Objective: min ||v - v_pref||² subject to ||v|| ≤ v_max<br/>• Linear-Time Seidel Algorithm (&lt; 2.5 ms on edge CPU)"]
-        OutputVel["<b>Feasible Velocity Command Output</b><br/>• Smooth Collision-Free Twist (v, ω) dispatched to Motors<br/>• Safe-Stop Fallback Activated if Feasible Region is Empty"]
+        OutputVel["<b>Feasible Velocity Command Output</b><br/>• Smooth Collision-Free Twist dispatched to Motors<br/>• Safe-Stop Fallback Activated if Feasible Region is Empty"]
 
         Peers -->|Relative Vectors| VOCone
         VOCone -->|Boundary Displacement u| HalfPlane
@@ -150,24 +150,24 @@ flowchart TD
         LPSolver -->|Optimal Safe Velocity| OutputVel
     end
 
-    subgraph S3 ["Stage 3: Multi-Agent Deadlock & Conflict Resolution"]
-        StallDetect{"<b>Deadlock & Contention Monitor</b><br/>• AMR Stalled Speed &lt; 0.05 m/s for &gt; 3.0 s<br/>• Or Head-on Corridor Contention (v_A · v_B &lt; -0.7)"}
+    subgraph S3 ["Stage 3: Multi-Agent Deadlock and Conflict Resolution"]
+        StallDetect{"<b>Deadlock and Contention Monitor</b><br/>• AMR Stalled Speed &lt; 0.05 m/s for &gt; 3.0 s<br/>• Or Head-on Corridor Contention"}
         PriorityScore["<b>Composite Priority Scoring Engine</b><br/>• 45% Distance to Goal (Clears Choke Points Fast)<br/>• 35% Task Urgency (High-Priority Order Fulfillment)<br/>• 20% Battery Reserve Bonus (Prevents Depletion)"]
         TieBreaker{"<b>Deterministic Decision</b><br/>Higher Priority Score<br/>or Lower Robot ID"}
         Leader["<b>Leader Role (Proceed)</b><br/>• Acquires Virtual Corridor Token<br/>• Maintains Preferred Trajectory v_pref"]
-        Follower["<b>Follower Role (Yield & Replan)</b><br/>• Yields Right-of-Way to Leader<br/>• Holds at Siding or Plans Alternative Aisle"]
+        Follower["<b>Follower Role (Yield and Replan)</b><br/>• Yields Right-of-Way to Leader<br/>• Holds at Siding or Plans Alternative Aisle"]
         Auction["<b>P2P Task Auction Protocol</b><br/>• Marginal Cost: Travel + Battery + Queue<br/>• AMRs with Battery &lt; 20% Excluded<br/>• Lowest Marginal Cost Wins Order"]
 
         StallDetect -->|Deadlock Confirmed| PriorityScore
         PriorityScore -->|Calculated Score S| TieBreaker
-        TieBreaker -->|Winner / Higher Score| Leader
-        TieBreaker -->|Yield / Lower Score| Follower
+        TieBreaker -->|Winner or Higher Score| Leader
+        TieBreaker -->|Yield or Lower Score| Follower
     end
 
     %% Inter-Stage Pipeline Flow
     Horizon ==>|Reference Velocity v_pref| LPSolver
-    OutputVel -.->|Monitors Velocity & Stalls| StallDetect
-    Follower ==>|Imposes Stop / Holding Constraint| LPSolver
+    OutputVel -.->|Monitors Velocity and Stalls| StallDetect
+    Follower ==>|Imposes Holding Constraint| LPSolver
     Leader -.->|Broadcasts Token Reservation| Peers
     Auction ==>|Dispatches Assigned Goal Waypoint| AStar
 ```
