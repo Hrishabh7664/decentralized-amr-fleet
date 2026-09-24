@@ -14,17 +14,17 @@ The benchmark suite rigorously compares the **Decentralized Multi-AMR Coordinati
 ## 2. Evaluation Scenarios
 
 ```mermaid
-graph LR
-    subgraph Scenario 1 [1. Overlapping Paths 3 AMRs]
-        S1["Corridor traversal: Head-on conflict (-10, 0) <-> (10, 0)"]
+flowchart LR
+    subgraph sc1 ["1. Overlapping Paths (3 AMRs)"]
+        S1["Corridor traversal: Head-on conflict (-10, 0) <--> (10, 0)"]
     end
-    subgraph Scenario 2 [2. Narrow Intersection 4 AMRs]
+    subgraph sc2 ["2. Narrow Intersection (4 AMRs)"]
         S2["4 AMRs converging simultaneously from North, South, East, West"]
     end
-    subgraph Scenario 3 [3. Blocked Aisle Re-routing]
+    subgraph sc3 ["3. Blocked Aisle Re-routing"]
         S3["Fallen pallet blocks main aisle at (0, 2); Dynamic multi-hop re-route"]
     end
-    subgraph Scenario 4 [4. Battery-Aware Lifelong Tasks]
+    subgraph sc4 ["4. Battery-Aware Lifelong Tasks"]
         S4["5 AMRs with varying battery; low-battery robots route to chargers"]
     end
 ```

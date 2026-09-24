@@ -33,12 +33,12 @@ The robot executes along this rolling window and continuously updates its path a
 Let Robot $A$ be at position $\mathbf{p}_A$ with velocity $\mathbf{v}_A$ and radius $r_A$. Let Robot $B$ be at position $\mathbf{p}_B$ with velocity $\mathbf{v}_B$ and radius $r_B$. The combined radius is $r = r_A + r_B$.
 
 The Velocity Obstacle $VO_{A|B}^\tau$ for time horizon $\tau$ is the set of relative velocities that lead to a collision before time $\tau$:
-$$VO_{A|B}^\tau = \left\{ \mathbf{v} \in \mathbb{R}^2 \;\middle|\; \exists t \in [0, \tau], \; t \mathbf{v} \in \mathcal{D}(\mathbf{p}_B - \mathbf{p}_A, r) \right\}$$
+$$VO_{A|B}^\tau = \left\{ \mathbf{v} \in \mathbb{R}^2 \mid \exists t \in [0, \tau], \; t \mathbf{v} \in \mathcal{D}(\mathbf{p}_B - \mathbf{p}_A, r) \right\}$$
 where $\mathcal{D}(\mathbf{p}, r)$ is a disc centered at $\mathbf{p}$ with radius $r$.
 
 ```mermaid
-graph TD
-    subgraph VO Formulation [Velocity Obstacle Cone & ORCA Half-Plane]
+flowchart TD
+    subgraph sub_vo ["Velocity Obstacle Cone & ORCA Half-Plane"]
         RelPos["Relative Position p = p_B - p_A"]
         RelVel["Relative Velocity v = v_A - v_B"]
         Apex["Cone Apex at (0, 0)"]
@@ -57,11 +57,11 @@ In pure reciprocal collision avoidance, both robots are assumed to make equal ef
 $$\mathbf{u} = \left( \arg\min_{\mathbf{w} \in \partial VO_{A|B}^\tau} \|\mathbf{w} - (\mathbf{v}_A - \mathbf{v}_B)\| \right) - (\mathbf{v}_A - \mathbf{v}_B)$$
 
 Let $\mathbf{n}$ be the unit normal vector pointing outward from the boundary of $VO_{A|B}^\tau$ at $(\mathbf{v}_A - \mathbf{v}_B) + \mathbf{u}$. Robot $A$ adapts its velocity by at least $\frac{1}{2} \mathbf{u}$:
-$$ORCA_{A|B}^\tau = \left\{ \mathbf{v} \in \mathbb{R}^2 \;\middle|\; \left( \mathbf{v} - \left( \mathbf{v}_A + \frac{1}{2} \mathbf{u} \right) \right) \cdot \mathbf{n} \geq 0 \right\}$$
+$$ORCA_{A|B}^\tau = \left\{ \mathbf{v} \in \mathbb{R}^2 \mid \left( \mathbf{v} - \left( \mathbf{v}_A + \frac{1}{2} \mathbf{u} \right) \right) \cdot \mathbf{n} \geq 0 \right\}$$
 
 ### 2.3 Static Obstacles
 For static obstacles (walls, racks), the obstacle is stationary ($\mathbf{v}_B = \mathbf{0}$) and cannot reciprocate. Robot $A$ assumes **100% of the responsibility**:
-$$ORCA_{A|\mathcal{O}}^\tau = \left\{ \mathbf{v} \in \mathbb{R}^2 \;\middle|\; \left( \mathbf{v} - (\mathbf{v}_A + \mathbf{u}) \right) \cdot \mathbf{n} \geq 0 \right\}$$
+$$ORCA_{A|\mathcal{O}}^\tau = \left\{ \mathbf{v} \in \mathbb{R}^2 \mid \left( \mathbf{v} - (\mathbf{v}_A + \mathbf{u}) \right) \cdot \mathbf{n} \geq 0 \right\}$$
 
 ### 2.4 2D Linear Programming Optimization
 At each control step ($20\text{ Hz}$), the robot determines the optimal velocity $\mathbf{v}_{\text{new}}$ that minimizes deviation from its preferred velocity $\mathbf{v}_{\text{pref}}$ while satisfying all ORCA half-plane constraints:
@@ -92,7 +92,7 @@ While ORCA guarantees collision avoidance, symmetric head-on encounters in narro
 ### 3.2 Dynamic Composite Priority Scoring
 When a deadlock or intersection contention is detected, robots calculate their composite priority score:
 
-$$S_{\text{priority}} = w_{\text{dist}} \cdot \left(\frac{1}{1 + d_{\text{goal}}}\right) + w_{\text{urgency}} \cdot U_{\text{task}} + w_{\text{bat}} \cdot \left(1 - \frac{\text{Battery}\%}{100}\right)$$
+$$S_{\text{priority}} = w_{\text{dist}} \cdot \left(\frac{1}{1 + d_{\text{goal}}}\right) + w_{\text{urgency}} \cdot U_{\text{task}} + w_{\text{bat}} \cdot \left(1 - \frac{\text{Battery}}{100}\right)$$
 
 Default weights:
 - $w_{\text{dist}} = 0.45$: Closer robots receive higher priority, clearing intersections faster.
@@ -136,17 +136,17 @@ For single-lane aisles where two robots cannot pass each other simultaneously:
 Any AMR that generates or receives a customer order acts as the temporary **auctioneer**.
 
 ```mermaid
-graph TD
-    NewTask[New Order Generated] --> Auctioneer[Robot Acts as Auctioneer]
-    Auctioneer -->|Broadcast Task Announcement| Peers[All Available Peer Robots]
-    Peers -->|Evaluate Marginal Cost| Bids[Compute Bid Cost]
+flowchart TD
+    NewTask["New Order Generated"] --> Auctioneer["Robot Acts as Auctioneer"]
+    Auctioneer -->|Broadcast Task Announcement| Peers["All Available Peer Robots"]
+    Peers -->|Evaluate Marginal Cost| Bids["Compute Bid Cost"]
     Bids -->|Submit TaskBid| Auctioneer
-    Auctioneer -->|Lowest Cost Wins| Award[Broadcast Task Assignment]
+    Auctioneer -->|Lowest Cost Wins| Award["Broadcast Task Assignment"]
 ```
 
 ### 4.2 Marginal Cost Evaluation
 Each peer evaluates its marginal bid cost:
-$$\text{Cost} = w_1 \cdot T_{\text{travel}} + w_2 \cdot \left(1 - \frac{\text{Battery}\%}{100}\right) \cdot 100 + w_3 \cdot N_{\text{queue}} \cdot 15.0 + w_4 \cdot C_{\text{congestion}}$$
+$$\text{Cost} = w_1 \cdot T_{\text{travel}} + w_2 \cdot \left(1 - \frac{\text{Battery}}{100}\right) \cdot 100 + w_3 \cdot N_{\text{queue}} \cdot 15.0 + w_4 \cdot C_{\text{congestion}}$$
 
 - $T_{\text{travel}} = (\|\mathbf{p}_{\text{curr}} - \mathbf{p}_{\text{pickup}}\| + \|\mathbf{p}_{\text{pickup}} - \mathbf{p}_{\text{dropoff}}\|) / v_{\text{nominal}}$
 - $N_{\text{queue}}$: Number of pending tasks in robot queue.

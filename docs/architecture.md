@@ -17,40 +17,41 @@ Every robot runs an autonomous decision-making loop on onboard edge hardware (Ra
 ## 2. Three-Tier Architectural Hierarchy
 
 ```mermaid
-graph TD
-    subgraph Tier 1: Onboard Edge Compute [Tier 1: Onboard Edge Stack - Per Robot RPi4 / Jetson Nano]
-        GP[Global Planner: A* + Rolling Horizon]
-        LP[Local Planner: 2D ORCA Half-Plane LP]
-        CR[Conflict Resolver: Deadlock & Token Engine]
-        TA[Task Allocator: P2P Auction Client]
-        BM[Battery Monitor & State Machine]
-        Sensors[LiDAR Scan, Odometry, IMU]
+flowchart TD
+    subgraph tier1 ["Tier 1: Onboard Edge Stack (RPi4 / Jetson Nano)"]
+        GP["Global Planner: A* + Rolling Horizon"]
+        LP["Local Planner: 2D ORCA Half-Plane LP"]
+        CR["Conflict Resolver: Deadlock & Token Engine"]
+        TA["Task Allocator: P2P Auction Client"]
+        BM["Battery Monitor & State Machine"]
+        Sensors["LiDAR Scan, Odometry, IMU"]
+        Motors["Wheel Actuators"]
     end
 
-    subgraph Tier 2: P2P DDS Transport Mesh [Tier 2: Peer-to-Peer DDS Mesh Network]
-        StateTopic["/fleet/{id}/state (20 Hz, BEST_EFFORT, 100ms deadline)"]
-        IntentTopic["/fleet/{id}/intent (5 Hz, RELIABLE, TRANSIENT_LOCAL)"]
+    subgraph tier2 ["Tier 2: Peer-to-Peer DDS Mesh Network"]
+        StateTopic["/fleet/{id}/state (20 Hz, BEST_EFFORT)"]
+        IntentTopic["/fleet/{id}/intent (5 Hz, RELIABLE)"]
         BidTopic["/fleet/{id}/bid (Event-Driven, RELIABLE)"]
         ConflictTopic["/fleet/{id}/conflict (Event-Driven, RELIABLE)"]
-        RelayEngine[Multi-Hop Relay Cache & Deduplication]
+        RelayEngine["Multi-Hop Relay Cache & Deduplication"]
     end
 
-    subgraph Tier 3: Oversight Dashboard [Tier 3: Monitoring Dashboard - Read-Only]
-        Bridge[rosbridge_suite WebSocket Port 9090]
-        ReactUI[React 18 + Leaflet Warehouse Floor Plan]
-        KPI[KPI Analytics & Conflict Feed]
+    subgraph tier3 ["Tier 3: Monitoring Dashboard (Read-Only)"]
+        Bridge["rosbridge_suite WebSocket (Port 9090)"]
+        ReactUI["React 18 + Leaflet Warehouse Floor Plan"]
+        KPI["KPI Analytics & Conflict Feed"]
     end
 
     Sensors --> LP
     GP --> LP
-    LP -->|cmd_vel| Motors[Wheel Actuators]
-    CR -->|Priority & Tokens| LP
-    TA -->|Assigned Goals| GP
-    BM -->|Threshold Signals| TA
-    BM -->|Charging Route| GP
+    LP --> Motors
+    CR --> LP
+    TA --> GP
+    BM --> TA
+    BM --> GP
 
-    Tier 1 <-->|DDS Publish / Subscribe| Tier 2
-    Tier 2 -->|Telemetry Stream| Bridge
+    tier1 --- tier2
+    tier2 --> Bridge
     Bridge --> ReactUI
     Bridge --> KPI
 ```

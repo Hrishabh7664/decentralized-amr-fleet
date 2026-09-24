@@ -1,14 +1,14 @@
 # Decentralized Multi-AMR Fleet Coordination & Collision-Avoidance Framework
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)](https://github.com/Hrishabh7664/decentralized-amr-fleet)
-[![ROS 2](https://img.shields.io/badge/ROS%202-Humble%20Hawksbill-blue.svg)](https://docs.ros.org/en/humble/)
-[![Gazebo](https://img.shields.io/badge/Gazebo-Classic%2011-orange.svg)](http://gazebosim.org/)
-[![DDS](https://img.shields.io/badge/DDS-Peer--to--Peer%20Mesh-purple.svg)](https://www.omg.org/spec/DDS/)
-[![Python](https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12-blue.svg)](https://www.python.org/)
+[![ROS 2](https://img.shields.io/badge/ROS_2-Humble_Hawksbill-blue.svg)](https://docs.ros.org/en/humble/)
+[![Gazebo](https://img.shields.io/badge/Gazebo-Classic_11-orange.svg)](http://gazebosim.org/)
+[![DDS](https://img.shields.io/badge/DDS-Peer_to_Peer_Mesh-purple.svg)](https://www.omg.org/spec/DDS/)
+[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-14%20Passing-success.svg)](tests/)
-[![Benchmarked](https://img.shields.io/badge/Collisions-0%20Zero-brightgreen.svg)](docs/benchmark.md)
-[![Throughput](https://img.shields.io/badge/Speedup-%2B47.6%25%20to%20%2B68.9%25-brightgreen.svg)](docs/benchmark.md)
+[![Tests](https://img.shields.io/badge/Tests-14_Passing-success.svg)](tests/)
+[![Collisions](https://img.shields.io/badge/Collisions-Zero_(0)-brightgreen.svg)](docs/benchmark.md)
+[![Speedup](https://img.shields.io/badge/Speedup-+47.6%25_to_+68.9%25-brightgreen.svg)](docs/benchmark.md)
 
 An edge-native, brokerless multi-robot coordination and collision avoidance framework for Autonomous Mobile Robots (AMRs) in dynamic smart warehouses. Built on **ROS 2 Humble**, **Gazebo Classic**, and **peer-to-peer DDS**, the system runs fully decentralized onboard edge hardware (Raspberry Pi 4 / Jetson Nano) with **zero central server** for path planning or coordination.
 
@@ -41,7 +41,9 @@ An edge-native, brokerless multi-robot coordination and collision avoidance fram
 In traditional warehouse automation, a central server calculates paths for all AGVs using centralized Multi-Agent Pathfinding (MAPF). However, centralized systems face three critical vulnerabilities in industrial settings:
 1. **Single Point of Failure (SPOF)**: If the coordinator server or local network fails, the entire facility halts.
 2. **Wi-Fi Dead Zones**: Metal shelving and high-density inventory block RF signals, stranding robots that lose server connectivity.
-3. **Exponential Compute Complexity**: Centralized path searches scale poorly ($O(k^N)$) as fleet size $N$ increases.
+3. **Exponential Compute Complexity**: Centralized path searches scale poorly (`O(k^N)`) as fleet size `N` increases.
+
+> **Core Principle**: Local Autonomy + Peer Awareness = Global Fleet Efficiency
 
 `decentralized-amr-fleet` solves these challenges by implementing **local autonomy with peer-to-peer awareness**:
 - Each robot runs its own onboard decision stack on edge hardware.
@@ -58,7 +60,7 @@ In traditional warehouse automation, a central server calculates paths for all A
 - **Multi-Hop Relay Forwarding**: Built-in packet cache and deduplication allowing robots to relay blockage alerts across Wi-Fi dead zones.
 - **Rolling-Horizon A* Global Planner**: Plans 5–10 second trajectory segments on a 2D occupancy grid with dynamic obstacle inflation.
 - **Pure-Python 2D ORCA Local Planner**: Solves reciprocal velocity obstacles via convex half-plane linear programming at 20 Hz with safe-stop fallbacks.
-- **Autonomous Deadlock Recovery**: Resolves stalls (> 3.0 s) using composite priority scores ($w_1 \cdot \text{dist} + w_2 \cdot \text{urgency} + w_3 \cdot \text{battery}$) with deterministic tie-breaking.
+- **Autonomous Deadlock Recovery**: Resolves stalls (> 3.0 s) using composite priority scores (combining distance to goal, task urgency, and battery state) with deterministic tie-breaking.
 - **Token-Based Corridor Reservations**: Virtual token mutex prevents head-on gridlock in single-lane aisles.
 - **Decentralized Auction Protocol**: Market-based task allocation where any robot can act as auctioneer and evaluate marginal travel/battery costs.
 - **Battery-Aware Governance**: Automatically excludes robots below 20% from new bids and autonomously routes robots below 15% to charging stations.
@@ -70,40 +72,41 @@ In traditional warehouse automation, a central server calculates paths for all A
 ## System Architecture
 
 ```mermaid
-graph TD
-    subgraph Tier 1: Onboard Edge Node [Tier 1: Onboard Edge Stack - Per Robot RPi4 / Jetson Nano]
-        GP[Global Planner: A* + Rolling Horizon]
-        LP[Local Planner: 2D ORCA Half-Plane LP]
-        CR[Conflict Resolver: Deadlock & Token Engine]
-        TA[Task Allocator: P2P Auction Client]
-        BM[Battery Monitor & State Machine]
-        Sensors[LiDAR Scan, Wheel Odometry, IMU]
+flowchart TD
+    subgraph tier1 ["Tier 1: Onboard Edge Stack (RPi4 / Jetson Nano)"]
+        GP["Global Planner: A* + Rolling Horizon"]
+        LP["Local Planner: 2D ORCA Half-Plane LP"]
+        CR["Conflict Resolver: Deadlock & Token Engine"]
+        TA["Task Allocator: P2P Auction Client"]
+        BM["Battery Monitor & State Machine"]
+        Sensors["LiDAR Scan, Wheel Odometry, IMU"]
+        Motors["Wheel Actuators"]
     end
 
-    subgraph Tier 2: DDS Peer-to-Peer Mesh [Tier 2: Peer-to-Peer DDS Mesh Network]
-        StateTopic["/fleet/{id}/state (20 Hz, BEST_EFFORT, 100ms deadline)"]
-        IntentTopic["/fleet/{id}/intent (5 Hz, RELIABLE, TRANSIENT_LOCAL)"]
+    subgraph tier2 ["Tier 2: Peer-to-Peer DDS Mesh Network"]
+        StateTopic["/fleet/{id}/state (20 Hz, BEST_EFFORT)"]
+        IntentTopic["/fleet/{id}/intent (5 Hz, RELIABLE)"]
         BidTopic["/fleet/{id}/bid (Event-Driven, RELIABLE)"]
         ConflictTopic["/fleet/{id}/conflict (Event-Driven, RELIABLE)"]
-        RelayEngine[Multi-Hop Relay Cache & Deduplication]
+        RelayEngine["Multi-Hop Relay Cache & Deduplication"]
     end
 
-    subgraph Tier 3: Oversight Dashboard [Tier 3: Monitoring Dashboard - Read-Only]
-        Bridge[rosbridge_suite WebSocket Port 9090]
-        ReactUI[React 18 + Leaflet Warehouse Floor Plan]
-        KPI[KPI Analytics & Conflict Feed]
+    subgraph tier3 ["Tier 3: Monitoring Dashboard (Read-Only)"]
+        Bridge["rosbridge_suite WebSocket (Port 9090)"]
+        ReactUI["React 18 + Leaflet Warehouse Floor Plan"]
+        KPI["KPI Analytics & Conflict Feed"]
     end
 
     Sensors --> LP
     GP --> LP
-    LP -->|cmd_vel| Motors[Wheel Actuators]
-    CR -->|Priority & Tokens| LP
-    TA -->|Assigned Goals| GP
-    BM -->|Threshold Signals| TA
-    BM -->|Charging Route| GP
+    LP --> Motors
+    CR --> LP
+    TA --> GP
+    BM --> TA
+    BM --> GP
 
-    Tier 1 <-->|DDS Pub / Sub| Tier 2
-    Tier 2 -->|Telemetry Stream| Bridge
+    tier1 --- tier2
+    tier2 --> Bridge
     Bridge --> ReactUI
     Bridge --> KPI
 ```
@@ -115,35 +118,46 @@ For comprehensive details on message interfaces, edge compute budgets, and seque
 ## Algorithmic Foundations
 
 ```mermaid
-graph LR
-    subgraph Global Planning [1. Global Path]
+flowchart LR
+    subgraph sub_gp ["1. Global Path Planning"]
         AStar["2D A* on Occupancy Grid"] --> Inflation["Obstacle Inflation (R = 0.50m)"]
         Inflation --> RH["Rolling Horizon (Window = 8.0s)"]
     end
 
-    subgraph Local ORCA [2. Local Avoidance]
+    subgraph sub_orca ["2. Local Collision Avoidance"]
         RH --> VO["Velocity Obstacle Cone Calculation"]
         VO --> HalfPlane["Reciprocal Half-Plane (50% Split)"]
         HalfPlane --> LP2["2D Linear Program Solver (20 Hz)"]
         LP2 --> CmdVel["Optimal Collision-Free Velocity"]
     end
 
-    subgraph Deadlock & Auction [3. Negotiation & Tasks]
+    subgraph sub_deadlock ["3. Negotiation & Tasks"]
         Stall["Stall > 3.0s"] --> Priority["Composite Score: Dist + Urgency + Battery"]
         Priority --> Leader["Leader Proceeds / Follower Yields"]
-        Auction["P2P Task Auction"] --> Marginal["Marginal Cost Evaluation (<20% excluded)"]
+        Auction["P2P Task Auction"] --> Marginal["Marginal Cost Evaluation (Battery > 20%)"]
     end
 ```
 
 ### 1. Optimal Reciprocal Collision Avoidance (ORCA)
-Each AMR calculates the relative velocity obstacle $VO_{A|B}^\tau$ induced by neighboring peers and static obstacles. Assuming reciprocal responsibility, Agent $A$ adapts its velocity by at least half the displacement vector $\mathbf{u}$:
-$$ORCA_{A|B}^\tau = \left\{ \mathbf{v} \;\middle|\; \left( \mathbf{v} - \left( \mathbf{v}_A + \frac{1}{2} \mathbf{u} \right) \right) \cdot \mathbf{n} \geq 0 \right\}$$
+Each AMR calculates the relative velocity obstacle $VO_{A|B}^{\tau}$ induced by neighboring peers and static obstacles. Assuming reciprocal responsibility, Agent $A$ adapts its velocity by at least half the displacement vector $\mathbf{u}$:
+
+```math
+ORCA_{A|B}^{\tau} = \left\{ \mathbf{v} \mid \left( \mathbf{v} - \left( \mathbf{v}_A + \frac{1}{2} \mathbf{u} \right) \right) \cdot \mathbf{n} \ge 0 \right\}
+```
+
 The agent solves a 2D convex optimization problem at 20 Hz to choose $\mathbf{v}_{\text{opt}}$ closest to $\mathbf{v}_{\text{pref}}$:
-$$\min_{\mathbf{v}} \|\mathbf{v} - \mathbf{v}_{\text{pref}}\|^2 \quad \text{s.t.} \quad \|\mathbf{v}\| \leq v_{\text{max}}, \quad (\mathbf{v} - \mathbf{p}_i) \cdot \mathbf{n}_i \geq 0$$
+
+```math
+\min_{\mathbf{v}} \|\mathbf{v} - \mathbf{v}_{\text{pref}}\|^2 \quad \text{subject to} \quad \|\mathbf{v}\| \le v_{\text{max}}, \quad (\mathbf{v} - \mathbf{p}_i) \cdot \mathbf{n}_i \ge 0
+```
 
 ### 2. Composite Priority Negotiation
 In symmetric deadlocks or narrow intersections, robots negotiate using a composite priority metric:
-$$S_{\text{priority}} = 0.45 \cdot \left(\frac{1}{1 + d_{\text{goal}}}\right) + 0.35 \cdot U_{\text{task}} + 0.20 \cdot \left(1 - \frac{\text{Battery}\%}{100}\right)$$
+
+```math
+S_{\text{priority}} = 0.45 \cdot \left(\frac{1}{1 + d_{\text{goal}}}\right) + 0.35 \cdot U_{\text{task}} + 0.20 \cdot \left(1 - \frac{\text{Battery}}{100}\right)
+```
+
 Ties are resolved deterministically using lexicographical comparison on `robot_id`.
 
 For mathematical derivations, pseudocode, and proofs, see [`docs/algorithms.md`](docs/algorithms.md).
