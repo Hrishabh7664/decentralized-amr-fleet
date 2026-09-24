@@ -47,11 +47,16 @@ flowchart TD
     LP --> Motors
     CR --> LP
     TA --> GP
-    BM --> TA
-    BM --> GP
+    Sensors --> StateTopic
+    GP --> IntentTopic
+    TA --> BidTopic
+    CR --> ConflictTopic
 
-    tier1 --- tier2
-    tier2 --> Bridge
+    StateTopic --> Bridge
+    IntentTopic --> Bridge
+    ConflictTopic --> Bridge
+    RelayEngine --> Bridge
+
     Bridge --> ReactUI
     Bridge --> KPI
 ```

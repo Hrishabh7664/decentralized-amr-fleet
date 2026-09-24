@@ -74,13 +74,13 @@ In traditional warehouse automation, a central server calculates paths for all A
 ```mermaid
 flowchart TD
     subgraph tier1 ["Tier 1: Onboard Edge Stack (RPi4 / Jetson Nano)"]
-        GP["Global Planner: A* + Rolling Horizon"]
-        LP["Local Planner: 2D ORCA Half-Plane LP"]
-        CR["Conflict Resolver: Deadlock & Token Engine"]
-        TA["Task Allocator: P2P Auction Client"]
+        GP["Global Planner (A* + Rolling Horizon)"]
+        LP["Local Planner (2D ORCA Half-Plane LP)"]
+        CR["Conflict Resolver (Deadlock & Token Engine)"]
+        TA["Task Allocator (P2P Auction Client)"]
         BM["Battery Monitor & State Machine"]
-        Sensors["LiDAR Scan, Wheel Odometry, IMU"]
-        Motors["Wheel Actuators"]
+        Sensors["Sensors (LiDAR, Odometry, IMU)"]
+        Motors["Motors (Wheel Actuators)"]
     end
 
     subgraph tier2 ["Tier 2: Peer-to-Peer DDS Mesh Network"]
@@ -88,13 +88,13 @@ flowchart TD
         IntentTopic["/fleet/{id}/intent (5 Hz, RELIABLE)"]
         BidTopic["/fleet/{id}/bid (Event-Driven, RELIABLE)"]
         ConflictTopic["/fleet/{id}/conflict (Event-Driven, RELIABLE)"]
-        RelayEngine["Multi-Hop Relay Cache & Deduplication"]
+        RelayEngine["Multi-Hop Relay Cache"]
     end
 
     subgraph tier3 ["Tier 3: Monitoring Dashboard (Read-Only)"]
-        Bridge["rosbridge_suite WebSocket (Port 9090)"]
-        ReactUI["React 18 + Leaflet Warehouse Floor Plan"]
-        KPI["KPI Analytics & Conflict Feed"]
+        Bridge["rosbridge WebSocket (Port 9090)"]
+        ReactUI["React 18 + Leaflet Map"]
+        KPI["Fleet KPIs & Event Feed"]
     end
 
     Sensors --> LP
@@ -105,8 +105,16 @@ flowchart TD
     BM --> TA
     BM --> GP
 
-    tier1 --- tier2
-    tier2 --> Bridge
+    Sensors --> StateTopic
+    GP --> IntentTopic
+    TA --> BidTopic
+    CR --> ConflictTopic
+
+    StateTopic --> Bridge
+    IntentTopic --> Bridge
+    ConflictTopic --> Bridge
+    RelayEngine --> Bridge
+
     Bridge --> ReactUI
     Bridge --> KPI
 ```
@@ -119,46 +127,54 @@ For comprehensive details on message interfaces, edge compute budgets, and seque
 
 ```mermaid
 flowchart LR
-    subgraph sub_gp ["1. Global Path Planning"]
-        AStar["2D A* on Occupancy Grid"] --> Inflation["Obstacle Inflation (R = 0.50m)"]
-        Inflation --> RH["Rolling Horizon (Window = 8.0s)"]
+    subgraph gp ["1. Global Path Planning"]
+        AStar["2D A* on Occupancy Grid"] --> Inflation["Obstacle Inflation (0.50m)"]
+        Inflation --> RH["Rolling Horizon (8.0s)"]
     end
 
-    subgraph sub_orca ["2. Local Collision Avoidance"]
-        RH --> VO["Velocity Obstacle Cone Calculation"]
+    subgraph orca ["2. Local Collision Avoidance"]
+        RH --> VO["Velocity Obstacle Calculation"]
         VO --> HalfPlane["Reciprocal Half-Plane (50% Split)"]
         HalfPlane --> LP2["2D Linear Program Solver (20 Hz)"]
         LP2 --> CmdVel["Optimal Collision-Free Velocity"]
     end
 
-    subgraph sub_deadlock ["3. Negotiation & Tasks"]
-        Stall["Stall > 3.0s"] --> Priority["Composite Score: Dist + Urgency + Battery"]
+    subgraph coord ["3. Negotiation & Tasks"]
+        Stall["Stationary Stall > 3.0s"] --> Priority["Composite Priority Scoring"]
         Priority --> Leader["Leader Proceeds / Follower Yields"]
-        Auction["P2P Task Auction"] --> Marginal["Marginal Cost Evaluation (Battery > 20%)"]
+        Auction["P2P Task Auction"] --> Marginal["Marginal Cost Evaluation"]
     end
 ```
 
 ### 1. Optimal Reciprocal Collision Avoidance (ORCA)
-Each AMR calculates the relative velocity obstacle $VO_{A|B}^{\tau}$ induced by neighboring peers and static obstacles. Assuming reciprocal responsibility, Agent $A$ adapts its velocity by at least half the displacement vector $\mathbf{u}$:
+Each AMR calculates the relative Velocity Obstacle (VO) induced by neighboring peers and static obstacles. Assuming reciprocal responsibility, Agent A adapts its velocity by at least half the displacement vector `u`:
 
-```math
-ORCA_{A|B}^{\tau} = \left\{ \mathbf{v} \mid \left( \mathbf{v} - \left( \mathbf{v}_A + \frac{1}{2} \mathbf{u} \right) \right) \cdot \mathbf{n} \ge 0 \right\}
+```
+ORCA Velocity Half-Plane Constraint:
+  (v - (v_A + 0.5 * u)) · n >= 0
 ```
 
-The agent solves a 2D convex optimization problem at 20 Hz to choose $\mathbf{v}_{\text{opt}}$ closest to $\mathbf{v}_{\text{pref}}$:
+The agent solves a 2D convex optimization problem at 20 Hz to choose an optimal velocity closest to its preferred velocity `v_pref`:
 
-```math
-\min_{\mathbf{v}} \|\mathbf{v} - \mathbf{v}_{\text{pref}}\|^2 \quad \text{subject to} \quad \|\mathbf{v}\| \le v_{\text{max}}, \quad (\mathbf{v} - \mathbf{p}_i) \cdot \mathbf{n}_i \ge 0
+```
+Convex Optimization Problem:
+  minimize:   ||v - v_pref||^2
+  subject to: ||v|| <= v_max
+              (v - p_i) · n_i >= 0   (for all neighbor constraints i)
 ```
 
 ### 2. Composite Priority Negotiation
-In symmetric deadlocks or narrow intersections, robots negotiate using a composite priority metric:
+In symmetric deadlocks or narrow intersections, robots negotiate using a composite priority score:
 
-```math
-S_{\text{priority}} = 0.45 \cdot \left(\frac{1}{1 + d_{\text{goal}}}\right) + 0.35 \cdot U_{\text{task}} + 0.20 \cdot \left(1 - \frac{\text{Battery}}{100}\right)
+```
+Priority Score:
+  Score = 0.45 * (1 / (1 + d_goal)) + 0.35 * Urgency + 0.20 * (1 - Battery / 100)
 ```
 
-Ties are resolved deterministically using lexicographical comparison on `robot_id`.
+- **Distance to Goal (45%)**: Closer robots receive higher priority to clear choke points faster.
+- **Task Urgency (35%)**: Prioritizes time-critical order fulfillment.
+- **Battery Reserve (20%)**: Provides a priority bonus to prevent low-battery robots from being starved of movement.
+- **Deterministic Tie-Breaking**: Ties are resolved using lexicographical comparison on `robot_id`.
 
 For mathematical derivations, pseudocode, and proofs, see [`docs/algorithms.md`](docs/algorithms.md).
 
