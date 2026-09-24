@@ -1,6 +1,6 @@
 # Decentralized Multi-AMR Fleet Coordination & Collision-Avoidance Framework
 
-[![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)](https://github.com/your-org/decentralized-amr-fleet)
+[![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)](https://github.com/Hrishabh7664/decentralized-amr-fleet)
 [![ROS 2](https://img.shields.io/badge/ROS%202-Humble%20Hawksbill-blue.svg)](https://docs.ros.org/en/humble/)
 [![Gazebo](https://img.shields.io/badge/Gazebo-Classic%2011-orange.svg)](http://gazebosim.org/)
 [![DDS](https://img.shields.io/badge/DDS-Peer--to--Peer%20Mesh-purple.svg)](https://www.omg.org/spec/DDS/)
@@ -169,7 +169,7 @@ The entire environment (ROS 2 Humble, Gazebo, CycloneDDS, nav2 dependencies, ros
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/your-org/decentralized-amr-fleet.git
+git clone https://github.com/Hrishabh7664/decentralized-amr-fleet.git
 cd decentralized-amr-fleet
 
 # 2. Build the Docker image
@@ -185,7 +185,7 @@ source /opt/ros/humble/setup.bash
 # 2. Create workspace and clone
 mkdir -p ~/amr_ws/src
 cd ~/amr_ws/src
-git clone https://github.com/your-org/decentralized-amr-fleet.git .
+git clone https://github.com/Hrishabh7664/decentralized-amr-fleet.git .
 
 # 3. Install system dependencies
 cd ~/amr_ws
