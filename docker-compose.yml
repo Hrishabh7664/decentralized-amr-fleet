@@ -1,0 +1,77 @@
+version: '3.8'
+
+services:
+  # 1. Gazebo Classic Warehouse Simulation + Decentralized 3-AMR Stack
+  simulation:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: amr_fleet_simulation
+    network_mode: "host"
+    environment:
+      - ROS_DOMAIN_ID=42
+      - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+      - DISPLAY=${DISPLAY:-:0}
+      - QT_X11_NO_MITSHM=1
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - ./results:/root/ros2_ws/results:rw
+    command: >
+      /bin/bash -c "
+        source /opt/ros/humble/setup.bash &&
+        source /root/ros2_ws/install/setup.bash &&
+        ros2 launch amr_fleet fleet_3.launch.py gui:=false
+      "
+    restart: unless-stopped
+
+  # 2. ROS Bridge Suite (WebSocket server for Web Dashboard on port 9090)
+  rosbridge:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: amr_rosbridge
+    network_mode: "host"
+    environment:
+      - ROS_DOMAIN_ID=42
+      - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+    command: >
+      /bin/bash -c "
+        source /opt/ros/humble/setup.bash &&
+        ros2 launch rosbridge_server rosbridge_websocket_launch.xml port:=9090
+      "
+    restart: unless-stopped
+    depends_on:
+      - simulation
+
+  # 3. Web Monitoring Dashboard (Serving React / Leaflet UI on port 3000)
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: amr_dashboard
+    network_mode: "host"
+    ports:
+      - "3000:3000"
+    command: >
+      /bin/bash -c "
+        python3 -m http.server 3000 --directory /root/ros2_ws/src/amr_dashboard/public
+      "
+    restart: unless-stopped
+    depends_on:
+      - rosbridge
+
+  # 4. Headless Automated Benchmarking Suite (Stop-and-Wait vs Decentralized Framework)
+  benchmark:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: amr_benchmark_runner
+    profiles: ["benchmark"]
+    volumes:
+      - ./results:/root/ros2_ws/results:rw
+    command: >
+      /bin/bash -c "
+        python3 /root/ros2_ws/scripts/benchmark_stop_and_wait.py &&
+        python3 /root/ros2_ws/scripts/benchmark_framework.py &&
+        python3 /root/ros2_ws/scripts/compare_benchmarks.py
+      "

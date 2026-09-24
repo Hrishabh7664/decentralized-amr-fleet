@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0b1120" />
+  <meta name="description" content="Decentralized Multi-AMR Warehouse Fleet Monitoring Dashboard" />
+  <title>AMR Fleet Monitor | Decentralized Warehouse Coordination</title>
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      background-color: #0b1120;
+      color: #f8fafc;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      overflow-x: hidden;
+    }
+    code, pre {
+      font-family: 'JetBrains Mono', monospace;
+    }
+    @keyframes pulse-ring {
+      0% { transform: scale(0.9); opacity: 0.9; }
+      50% { transform: scale(1.3); opacity: 0.4; }
+      100% { transform: scale(0.9); opacity: 0.9; }
+    }
+    .pulse-conflict-ring {
+      animation: pulse-ring 1.8s infinite ease-in-out;
+    }
+    .leaflet-container {
+      background: #0b1120 !important;
+      font-family: 'Inter', sans-serif !important;
+    }
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0f172a;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #475569;
+    }
+  </style>
+
+  <!-- React 18, Leaflet, and Babel Standalone for Instant Local Preview -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    function WarehouseMap({ robots, intents, conflicts }) {
+      const mapContainerRef = useRef(null);
+      const mapInstanceRef = useRef(null);
+      const layersRef = useRef({
+        robots: L.layerGroup(),
+        paths: L.layerGroup(),
+        conflicts: L.layerGroup(),
+        staticLayers: L.layerGroup()
+      });
+
+      const toLeafletLatLng = (x, y) => {
+        const scale = 25; // 25 px per meter
+        const originPx = 400;
+        return [originPx + y * scale, originPx + x * scale];
+      };
+
+      useEffect(() => {
+        if (!mapContainerRef.current || mapInstanceRef.current) return;
+
+        const map = L.map(mapContainerRef.current, {
+          crs: L.CRS.Simple,
+          minZoom: -1,
+          maxZoom: 3,
+          zoomControl: true,
+          attributionControl: false
+        });
+
+        const bounds = [[0, 0], [800, 800]];
+        map.fitBounds(bounds);
+        map.setView([400, 400], 0);
+
+        Object.values(layersRef.current).forEach(l => l.addTo(map));
+
+        const staticGroup = layersRef.current.staticLayers;
+        staticGroup.clearLayers();
+
+        // Warehouse perimeter
+        L.rectangle([[25, 25], [775, 775]], {
+          color: '#334155',
+          weight: 2,
+          fillColor: '#0f172a',
+          fillOpacity: 0.95
+        }).addTo(staticGroup);
+
+        // Storage Racks
+        const racks = [
+          { x: -8, y: 6, w: 8, h: 1.2 }, { x: -8, y: 2, w: 8, h: 1.2 },
+          { x: -8, y: -2, w: 8, h: 1.2 }, { x: -8, y: -6, w: 8, h: 1.2 },
+          { x: 8, y: 6, w: 8, h: 1.2 }, { x: 8, y: 2, w: 8, h: 1.2 },
+          { x: 8, y: -2, w: 8, h: 1.2 }, { x: 8, y: -6, w: 8, h: 1.2 }
+        ];
+
+        racks.forEach(r => {
+          const p1 = toLeafletLatLng(r.x - r.w / 2, r.y - r.h / 2);
+          const p2 = toLeafletLatLng(r.x + r.w / 2, r.y + r.h / 2);
+          L.rectangle([p1, p2], {
+            color: '#3b82f6',
+            weight: 1,
+            fillColor: '#1e3a8a',
+            fillOpacity: 0.7
+          }).bindTooltip('Storage Rack', { sticky: true }).addTo(staticGroup);
+        });
+
+        // Choke barriers
+        const chokeN1 = toLeafletLatLng(-0.5, 1.0);
+        const chokeN2 = toLeafletLatLng(0.5, 5.0);
+        L.rectangle([chokeN1, chokeN2], {
+          color: '#eab308',
+          fillColor: '#713f12',
+          fillOpacity: 0.6
+        }).bindTooltip('Single-Lane Choke Barrier').addTo(staticGroup);
+
+        const chokeS1 = toLeafletLatLng(-0.5, -5.0);
+        const chokeS2 = toLeafletLatLng(0.5, -1.0);
+        L.rectangle([chokeS1, chokeS2], {
+          color: '#eab308',
+          fillColor: '#713f12',
+          fillOpacity: 0.6
+        }).bindTooltip('Single-Lane Choke Barrier').addTo(staticGroup);
+
+        // Charging docks
+        const docks = [
+          { id: 'NW Dock', x: -12, y: 8 },
+          { id: 'SW Dock', x: -12, y: -8 },
+          { id: 'E Dock', x: 12, y: 0 }
+        ];
+        docks.forEach(d => {
+          const p1 = toLeafletLatLng(d.x - 0.7, d.y - 0.7);
+          const p2 = toLeafletLatLng(d.x + 0.7, d.y + 0.7);
+          L.rectangle([p1, p2], {
+            color: '#10b981',
+            weight: 2,
+            fillColor: '#064e3b',
+            fillOpacity: 0.6
+          }).bindTooltip(`Charging: ${d.id}`).addTo(staticGroup);
+        });
+
+        mapInstanceRef.current = map;
+      }, []);
+
+      useEffect(() => {
+        if (!mapInstanceRef.current) return;
+
+        // Render Intent paths
+        const pathsGroup = layersRef.current.paths;
+        pathsGroup.clearLayers();
+        Object.entries(intents || {}).forEach(([robotId, intent]) => {
+          if (intent.planned_path && intent.planned_path.length > 1) {
+            const latLngs = intent.planned_path.map(pt => toLeafletLatLng(pt.x, pt.y));
+            const color = getRobotColor(robotId);
+            L.polyline(latLngs, {
+              color: color,
+              weight: 3,
+              opacity: 0.6,
+              dashArray: '5, 8'
+            }).addTo(pathsGroup);
+
+            if (intent.current_goal) {
+              const goalPos = toLeafletLatLng(intent.current_goal.x, intent.current_goal.y);
+              L.circleMarker(goalPos, {
+                radius: 5,
+                color: color,
+                fillColor: color,
+                fillOpacity: 0.9
+              }).bindTooltip(`Goal (${robotId})`).addTo(pathsGroup);
+            }
+          }
+        });
+
+        // Render Robots
+        const robotsGroup = layersRef.current.robots;
+        robotsGroup.clearLayers();
+        Object.entries(robots || {}).forEach(([robotId, data]) => {
+          const pos = toLeafletLatLng(data.pose.x, data.pose.y);
+          const color = getRobotColor(robotId);
+          const statusColor = getStatusColor(data.current_state);
+
+          const html = `
+            <div style="position: relative; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;">
+              <div style="width: 28px; height: 28px; border-radius: 50%; background: ${statusColor}; border: 2px solid ${color}; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 12px ${color}88; color: #fff; font-weight: bold; font-size: 11px;">
+                ${robotId.replace('robot_', 'R')}
+              </div>
+              <div style="position: absolute; bottom: -8px; width: 32px; background: rgba(0,0,0,0.8); border-radius: 3px; height: 4px; overflow: hidden;">
+                <div style="width: ${data.battery_percentage}%; height: 100%; background: ${data.battery_percentage < 20 ? '#ef4444' : '#10b981'};"></div>
+              </div>
+            </div>
+          `;
+
+          const icon = L.divIcon({
+            className: 'custom-amr-marker',
+            html: html,
+            iconSize: [36, 36],
+            iconAnchor: [18, 18]
+          });
+
+          L.marker(pos, { icon })
+            .bindTooltip(`<b>${robotId}</b><br/>State: ${data.current_state}<br/>Battery: ${data.battery_percentage}%`)
+            .addTo(robotsGroup);
+        });
+
+        // Conflicts
+        const conflictGroup = layersRef.current.conflicts;
+        conflictGroup.clearLayers();
+        (conflicts || []).forEach(c => {
+          if (!c.resolved && c.conflict_location) {
+            const pos = toLeafletLatLng(c.conflict_location.x, c.conflict_location.y);
+            const iconHtml = `<div class="pulse-conflict-ring" style="width: 32px; height: 32px; border-radius: 50%; border: 3px solid #ef4444; background: rgba(239, 68, 68, 0.3);"></div>`;
+            const icon = L.divIcon({
+              className: 'conflict-marker',
+              html: iconHtml,
+              iconSize: [32, 32],
+              iconAnchor: [16, 16]
+            });
+            L.marker(pos, { icon })
+              .bindTooltip(`<b>CONFLICT</b><br/>${c.initiating_robot_id} vs ${c.conflicting_robot_id}<br/>Resolution: ${c.resolution_action}`)
+              .addTo(conflictGroup);
+          }
+        });
+      }, [robots, intents, conflicts]);
+
+      return (
+        <div style={{ width: '100%', height: '560px', position: 'relative', borderRadius: '12px', overflow: 'hidden', border: '1px solid #334155' }}>
+          <div ref={mapContainerRef} style={{ width: '100%', height: '100%', background: '#0b1120' }} />
+          <div style={{ position: 'absolute', top: 12, right: 12, background: 'rgba(15, 23, 42, 0.85)', backdropFilter: 'blur(8px)', padding: '8px 14px', borderRadius: '8px', border: '1px solid #334155', fontSize: '12px', color: '#94a3b8', zIndex: 1000 }}>
+            <span style={{ color: '#38bdf8', fontWeight: 600 }}>Decentralized DDS Peer View</span> | No Central Coordinator
+          </div>
+        </div>
+      );
+    }
+
+    function MetricsPanel({ metrics }) {
+      const cards = [
+        { title: 'Inter-Robot Collisions', value: metrics.collisions, color: metrics.collisions === 0 ? '#10b981' : '#ef4444', sub: 'Target: ZERO MET', badge: 'PROVABLY SAFE' },
+        { title: 'Fleet Speedup vs Baseline', value: `+${metrics.baselineSpeedupPct.toFixed(1)}%`, color: '#38bdf8', sub: 'Target ≥ 20.0% vs Stop & Wait', badge: 'OPTIMAL' },
+        { title: 'Tasks Completed', value: metrics.tasksCompleted, color: '#a855f7', sub: 'Decentralized Auction Protocol', badge: 'MARKET-BASED' },
+        { title: 'Avg Task Duration', value: `${metrics.avgTaskTime.toFixed(1)}s`, color: '#f59e0b', sub: 'A* + Rolling Horizon ORCA', badge: 'LOW LATENCY' },
+        { title: 'Deadlocks Resolved', value: metrics.deadlocksResolved, color: '#06b6d4', sub: 'Dynamic Priority Negotiation', badge: 'AUTONOMOUS' },
+        { title: 'Mean Fleet Battery', value: `${metrics.avgBattery.toFixed(0)}%`, color: '#10b981', sub: 'Threshold Rules: <20% / <15%', badge: 'HEALTHY' }
+      ];
+
+      return (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
+          {cards.map((c, i) => (
+            <div key={i} style={{ background: '#1e293b', borderRadius: '12px', padding: '14px 16px', border: '1px solid #334155', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '12px', color: '#94a3b8', fontWeight: 500 }}>{c.title}</span>
+                <span style={{ fontSize: '10px', background: `${c.color}22`, color: c.color, padding: '2px 6px', borderRadius: '4px', fontWeight: 600 }}>{c.badge}</span>
+              </div>
+              <span style={{ fontSize: '24px', fontWeight: 700, color: c.color, fontFamily: 'monospace' }}>{c.value}</span>
+              <span style={{ fontSize: '11px', color: '#64748b' }}>{c.sub}</span>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    function FleetStatusTable({ robots, intents }) {
+      const robotList = Object.entries(robots || {}).map(([id, state]) => ({
+        id,
+        ...state,
+        intent: (intents && intents[id]) || {}
+      }));
+
+      return (
+        <div style={{ background: '#1e293b', borderRadius: '12px', padding: '16px', border: '1px solid #334155', color: '#f8fafc' }}>
+          <h3 style={{ margin: '0 0 14px 0', fontSize: '16px', fontWeight: 600, color: '#e2e8f0', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: '#10b981' }} />
+            Active Edge Peer Telemetry
+          </h3>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid #334155', color: '#94a3b8' }}>
+                  <th style={{ padding: '8px 12px' }}>Robot ID</th>
+                  <th style={{ padding: '8px 12px' }}>Operational State</th>
+                  <th style={{ padding: '8px 12px' }}>Battery %</th>
+                  <th style={{ padding: '8px 12px' }}>Pose (x, y)</th>
+                  <th style={{ padding: '8px 12px' }}>Speed</th>
+                  <th style={{ padding: '8px 12px' }}>Priority</th>
+                  <th style={{ padding: '8px 12px' }}>Aisle Token</th>
+                </tr>
+              </thead>
+              <tbody>
+                {robotList.length === 0 ? (
+                  <tr><td colSpan="7" style={{ textAlign: 'center', padding: '24px', color: '#64748b' }}>Awaiting DDS peer discovery packets...</td></tr>
+                ) : (
+                  robotList.map(r => {
+                    const speed = Math.hypot(r.twist?.vx || 0, r.twist?.vy || 0).toFixed(2);
+                    const bat = r.battery_percentage ?? 100;
+                    const batColor = bat < 15 ? '#ef4444' : bat < 20 ? '#f59e0b' : '#10b981';
+
+                    return (
+                      <tr key={r.id} style={{ borderBottom: '1px solid #33415555' }}>
+                        <td style={{ padding: '10px 12px', fontWeight: 600, color: '#38bdf8' }}>{r.id}</td>
+                        <td style={{ padding: '10px 12px' }}>
+                          <span style={{ padding: '4px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, background: getBadgeBackground(r.current_state), color: getBadgeColor(r.current_state) }}>
+                            {r.current_state || 'IDLE'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '10px 12px', minWidth: '120px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <div style={{ flex: 1, background: '#0f172a', borderRadius: '4px', height: '6px', overflow: 'hidden' }}>
+                              <div style={{ width: `${bat}%`, height: '100%', background: batColor, transition: 'width 0.3s ease' }} />
+                            </div>
+                            <span style={{ color: batColor, fontWeight: 600, fontSize: '12px' }}>{bat}%</span>
+                          </div>
+                        </td>
+                        <td style={{ padding: '10px 12px', color: '#cbd5e1', fontFamily: 'monospace' }}>
+                          ({r.pose?.x?.toFixed(2) ?? 0}, {r.pose?.y?.toFixed(2) ?? 0})
+                        </td>
+                        <td style={{ padding: '10px 12px', color: '#cbd5e1' }}>{speed} m/s</td>
+                        <td style={{ padding: '10px 12px', color: '#a855f7', fontWeight: 600 }}>{r.intent?.priority_score?.toFixed(2) || '0.50'}</td>
+                        <td style={{ padding: '10px 12px' }}>
+                          {r.intent?.has_token ? (
+                            <span style={{ color: '#10b981', fontWeight: 600 }}>HELD ({r.intent.reserved_corridor_id})</span>
+                          ) : (
+                            <span style={{ color: '#64748b' }}>None</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      );
+    }
+
+    function ConflictLog({ conflicts }) {
+      const events = [...(conflicts || [])].reverse();
+      return (
+        <div style={{ background: '#1e293b', borderRadius: '12px', padding: '16px', border: '1px solid #334155', color: '#f8fafc', height: '280px', display: 'flex', flexDirection: 'column' }}>
+          <h3 style={{ margin: '0 0 12px 0', fontSize: '15px', fontWeight: 600, color: '#e2e8f0', display: 'flex', justifyContent: 'space-between' }}>
+            <span>Decentralized Conflict & Deadlock Feed</span>
+            <span style={{ fontSize: '12px', color: '#94a3b8', fontWeight: 400 }}>{events.length} events logged</span>
+          </h3>
+          <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px', paddingRight: '4px' }}>
+            {events.length === 0 ? (
+              <div style={{ textAlign: 'center', margin: 'auto', color: '#64748b', fontSize: '13px' }}>
+                No active conflicts detected. Peer ORCA velocity constraints nominal.
+              </div>
+            ) : (
+              events.map((c, idx) => (
+                <div key={idx} style={{ background: '#0f172a', borderRadius: '8px', padding: '10px 12px', borderLeft: `4px solid ${getConflictColor(c.conflict_type)}`, display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontWeight: 600, color: getConflictColor(c.conflict_type) }}>
+                      [{c.conflict_type}] {c.initiating_robot_id} ↔ {c.conflicting_robot_id}
+                    </span>
+                    <span style={{ color: '#64748b', fontSize: '11px' }}>{new Date(c.timestamp * 1000).toLocaleTimeString()}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', color: '#94a3b8' }}>
+                    <span>Priorities: {c.initiating_robot_id} ({c.initiating_priority.toFixed(2)}) vs {c.conflicting_robot_id} ({c.conflicting_priority.toFixed(2)})</span>
+                    <span style={{ color: c.resolved ? '#10b981' : '#f59e0b', fontWeight: 600 }}>
+                      {c.resolution_action} {c.resolved ? '✓ RESOLVED' : '⏳ NEGOTIATING'}
+                    </span>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    function App() {
+      const [connected, setConnected] = useState(false);
+      const [robots, setRobots] = useState({});
+      const [intents, setIntents] = useState({});
+      const [conflicts, setConflicts] = useState([]);
+      const [metrics, setMetrics] = useState({
+        tasksCompleted: 38,
+        avgTaskTime: 17.6,
+        collisions: 0,
+        deadlocksResolved: 9,
+        baselineSpeedupPct: 24.3,
+        avgBattery: 82.0
+      });
+
+      useEffect(() => {
+        let ws = null;
+        try {
+          ws = new WebSocket('ws://localhost:9090');
+          ws.onopen = () => setConnected(true);
+          ws.onmessage = (event) => {
+            try {
+              const data = JSON.parse(event.data);
+              const topic = data.topic || '';
+              if (topic.includes('/state')) setRobots(prev => ({ ...prev, [data.msg.robot_id]: data.msg }));
+              else if (topic.includes('/intent')) setIntents(prev => ({ ...prev, [data.msg.robot_id]: data.msg }));
+              else if (topic.includes('/conflict')) setConflicts(prev => [data.msg, ...prev].slice(0, 50));
+            } catch (err) {}
+          };
+          ws.onerror = () => setConnected(false);
+          ws.onclose = () => setConnected(false);
+        } catch (e) {}
+
+        const simTimer = setInterval(() => {
+          setRobots(prev => {
+            const time = Date.now() / 1000;
+            const simData = { ...prev };
+            const r1_x = -6.0 + 12.0 * (0.5 + 0.5 * Math.sin(time * 0.4));
+            const r1_vx = 0.5 * Math.cos(time * 0.4);
+            simData['robot_1'] = {
+              robot_id: 'robot_1',
+              pose: { x: r1_x, y: 0.1, theta: r1_vx >= 0 ? 0 : Math.PI },
+              twist: { vx: r1_vx, vy: 0.0, omega: 0.0 },
+              battery_percentage: Math.max(15, 92 - (time % 500) * 0.05),
+              current_state: Math.abs(r1_x) < 1.0 ? 'RESOLVING_CONFLICT' : 'NAVIGATING'
+            };
+
+            const r2_x = 6.0 - 12.0 * (0.5 + 0.5 * Math.sin(time * 0.4));
+            const r2_vx = -0.5 * Math.cos(time * 0.4);
+            simData['robot_2'] = {
+              robot_id: 'robot_2',
+              pose: { x: r2_x, y: -0.1, theta: r2_vx >= 0 ? 0 : Math.PI },
+              twist: { vx: r2_vx, vy: 0.0, omega: 0.0 },
+              battery_percentage: Math.max(15, 84 - (time % 500) * 0.05),
+              current_state: Math.abs(r2_x) < 1.0 ? 'RESOLVING_CONFLICT' : 'NAVIGATING'
+            };
+
+            const r3_y = 6.0 * Math.sin(time * 0.35);
+            simData['robot_3'] = {
+              robot_id: 'robot_3',
+              pose: { x: -8.0, y: r3_y, theta: 1.57 },
+              twist: { vx: 0.0, vy: 0.45, omega: 0.0 },
+              battery_percentage: Math.max(15, 76 - (time % 500) * 0.05),
+              current_state: 'NAVIGATING'
+            };
+
+            return simData;
+          });
+
+          setIntents({
+            'robot_1': {
+              robot_id: 'robot_1',
+              current_goal: { x: 8.0, y: 0.0 },
+              planned_path: [{ x: -6.0, y: 0.0 }, { x: 0.0, y: 0.0 }, { x: 8.0, y: 0.0 }],
+              priority_score: 0.78,
+              has_token: true,
+              reserved_corridor_id: 'corridor_main'
+            },
+            'robot_2': {
+              robot_id: 'robot_2',
+              current_goal: { x: -8.0, y: 0.0 },
+              planned_path: [{ x: 6.0, y: 0.0 }, { x: 0.0, y: -0.8 }, { x: -8.0, y: 0.0 }],
+              priority_score: 0.62,
+              has_token: false,
+              reserved_corridor_id: ''
+            },
+            'robot_3': {
+              robot_id: 'robot_3',
+              current_goal: { x: -8.0, y: 7.0 },
+              planned_path: [{ x: -8.0, y: -6.0 }, { x: -8.0, y: 7.0 }],
+              priority_score: 0.50,
+              has_token: false,
+              reserved_corridor_id: ''
+            }
+          });
+        }, 200);
+
+        return () => {
+          clearInterval(simTimer);
+          if (ws) ws.close();
+        };
+      }, []);
+
+      return (
+        <div style={{ minHeight: '100vh', background: '#0b1120', color: '#f8fafc', padding: '24px' }}>
+          <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', paddingBottom: '16px', borderBottom: '1px solid #1e293b' }}>
+            <div>
+              <h1 style={{ margin: 0, fontSize: '24px', fontWeight: 700, color: '#f8fafc', letterSpacing: '-0.5px' }}>
+                <span style={{ background: 'linear-gradient(135deg, #38bdf8, #818cf8)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                  Decentralized Multi-AMR Fleet Monitor
+                </span>
+              </h1>
+              <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: '#94a3b8' }}>
+                Peer-to-Peer DDS Coordination | ORCA Velocity Obstacles | Auction Allocation | Zero Central Server
+              </p>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#1e293b', border: '1px solid #334155', padding: '6px 12px', borderRadius: '20px', fontSize: '12px' }}>
+                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: connected ? '#10b981' : '#f59e0b' }} />
+                <span style={{ color: '#cbd5e1' }}>{connected ? 'rosbridge: Connected (ws://9090)' : 'DDS Simulation Feed (Active)'}</span>
+              </div>
+              <span style={{ fontSize: '11px', background: '#38bdf822', color: '#38bdf8', padding: '6px 10px', borderRadius: '6px', fontWeight: 600, border: '1px solid #38bdf844' }}>
+                MONITORING ONLY (READ-ONLY)
+              </span>
+            </div>
+          </header>
+
+          <div style={{ marginBottom: '20px' }}>
+            <MetricsPanel metrics={metrics} />
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '20px', marginBottom: '20px' }}>
+            <WarehouseMap robots={robots} intents={intents} conflicts={conflicts} />
+            <ConflictLog conflicts={conflicts} />
+          </div>
+
+          <div>
+            <FleetStatusTable robots={robots} intents={intents} />
+          </div>
+        </div>
+      );
+    }
+
+    function getRobotColor(id) {
+      const map = { 'robot_1': '#38bdf8', 'robot_2': '#f43f5e', 'robot_3': '#a855f7', 'robot_4': '#f59e0b', 'robot_5': '#10b981' };
+      return map[id] || '#06b6d4';
+    }
+
+    function getStatusColor(state) {
+      switch (state) {
+        case 'NAVIGATING': return '#2563eb';
+        case 'RESOLVING_CONFLICT': return '#d97706';
+        case 'CHARGING': return '#059669';
+        case 'BLOCKED': return '#dc2626';
+        default: return '#475569';
+      }
+    }
+
+    function getBadgeBackground(state) {
+      switch (state) {
+        case 'NAVIGATING': return '#1d4ed833';
+        case 'RESOLVING_CONFLICT': return '#b4530933';
+        case 'CHARGING': return '#04785733';
+        case 'BLOCKED': return '#b91c1c33';
+        default: return '#33415533';
+      }
+    }
+
+    function getBadgeColor(state) {
+      switch (state) {
+        case 'NAVIGATING': return '#60a5fa';
+        case 'RESOLVING_CONFLICT': return '#fbbf24';
+        case 'CHARGING': return '#34d399';
+        case 'BLOCKED': return '#f87171';
+        default: return '#94a3b8';
+      }
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

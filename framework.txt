@@ -1,0 +1,233 @@
+## 1. System Architecture Overview
+
+The framework follows a **layered decentralized architecture** with three tiers. At the bottom, each AMR runs its own onboard decision loop on a Raspberry Pi or Jetson Nano. Above that, robots communicate peer-to-peer via DDS/ROS 2 without any central broker. At the top, a lightweight fleet dashboard subscribes to telemetry topics for monitoring only — it never issues path commands. This separation is deliberate: removing the central server eliminates single-point-of-failure risk and Wi-Fi dead-zone vulnerabilities, while the dashboard provides human oversight without becoming a critical dependency.
+
+The core principle is **local autonomy, global awareness**: each robot plans its own path, resolves conflicts with neighbors through direct negotiation, and re-plans independently when blocked. The only shared state is what robots voluntarily broadcast — position, velocity, battery level, current task, and intent.
+
+---
+
+## 2. Decentralized Communication Stack (DDS / ROS 2)
+
+### 2.1 Why DDS
+
+The Data Distribution Service (DDS) is the de facto standard for AMR-to-AMR communication. It is a **brokerless, peer-to-peer publish–subscribe middleware** designed for mission-critical real-time systems. Each robot operates as a DDS participant that automatically discovers peers on the local network and exchanges data without a central message broker. This is precisely the communication model needed: robots publish their state and intent, subscribe to neighbors' states, and make local decisions.
+
+ROS 2 natively uses DDS as its transport layer, providing topics (publish–subscribe), services (request–response), and actions (long-running goals) across heterogeneous edge devices. The framework should use **ROS 2 Humble** with a real-time-capable DDS implementation (FastDDS or CycloneDDS).
+
+### 2.2 Topic Design
+
+| Topic | Type | Frequency | QoS | Purpose |
+|-------|------|-----------|-----|---------|
+| `/fleet/{id}/state` | `PoseStamped` + `Twist` + `battery` | 10–20 Hz | Best-effort, deadline 100 ms | Position, velocity, battery |
+| `/fleet/{id}/intent` | `Path` + `current_goal` | 2–5 Hz (on change) | Reliable, transient-local | Planned path and next waypoint |
+| `/fleet/{id}/bid` | `TaskBid` | Event-driven | Reliable | Auction bids for task allocation |
+| `/fleet/{id}/conflict` | `ConflictMessage` | Event-driven | Reliable | Deadlock / priority negotiation |
+
+**QoS tuning is critical.** For state topics, use `BEST_EFFORT` with a short deadline — losing a few position updates is acceptable, but stale data is dangerous. For intent and conflict messages, use `RELIABLE` with transient-local durability so late-joining robots receive the latest intent. A 200 Hz ROS 2 String stream over Wi-Fi to a Raspberry Pi achieved only 74.9% delivery in one study; therefore, the framework must tolerate message loss on high-frequency topics and use reliable delivery only for low-frequency, high-importance messages.
+
+### 2.3 Network Topology
+
+Robots form a **mesh network** where each robot discovers peers within communication range (e.g., 30–50 m indoors). No central access point is required, though an existing Wi-Fi infrastructure can serve as transport. For robustness, the framework supports **multi-hop relay**: if Robot A cannot reach Robot C directly, it can relay through Robot B using ROS 2's DDS discovery and message forwarding. This addresses the Wi-Fi dead-zone vulnerability by allowing robots to bridge connectivity gaps.
+
+---
+
+## 3. Multi-Agent Path Planning
+
+### 3.1 Global Planner: A* on Occupancy Grid
+
+Each robot independently runs A* on a shared warehouse occupancy grid to compute a global path from its current position to its goal. The grid is built once and distributed to all robots at startup (or via a map-sharing service). A* provides optimal paths in static environments and is computationally lightweight enough for Jetson Nano / Raspberry Pi 4.
+
+For **lifelong MAPF** (continuous task streams), the global planner must re-plan when new tasks arrive or when the current path is invalidated by a blocked aisle. The re-planning strategy is **rolling-horizon**: plan only the next 5–10 seconds of motion, execute, then re-plan.
+
+### 3.2 Local Planner: ORCA + Deadlock Recovery
+
+The local collision avoidance layer uses **Optimal Reciprocal Collision Avoidance (ORCA)** . ORCA is a distributed method that computes collision-free velocity constraints in velocity space, requiring only local sensing and neighbor state information. Each robot solves a small convex optimization at 10–20 Hz to select a velocity that avoids all nearby robots and static obstacles.
+
+**ORCA alone is not sufficient** in dense warehouse scenarios. It is provably safe only when a collision-free velocity exists for every agent simultaneously — in symmetric standoffs and choke points, this assumption breaks down, causing deadlocks and swarm jams. The FlowSwarm project demonstrated this: plain ORCA + A* achieved 0% success on antipodal swap scenarios and generated 3,329 collision-steps.
+
+### 3.3 Hybrid Global-Local Architecture
+
+The recommended architecture combines **CBS-style conflict resolution at the global level** with **ORCA at the local level**. A hybrid fleet management framework has been validated in ROS2/Gazebo that uses centralized multi-agent pathfinding for coordination and decentralized Nav2 execution for navigation. For a fully decentralized system, replace the centralized MAPF with **prioritized planning**: each robot computes its path, then robots exchange intent messages and re-plan in priority order if conflicts are detected.
+
+**Priority assignment** is dynamic and based on:
+- Distance to goal (closer = higher priority)
+- Task urgency
+- Battery level (lower battery = higher priority)
+
+If a higher-priority robot's path conflicts with a lower-priority robot's path, the lower-priority robot re-plans with a space-time constraint that avoids the conflict. This is a decentralized approximation of Conflict-Based Search (CBS), which is well-established for warehouse AGV path planning.
+
+---
+
+## 4. Dynamic Conflict Resolution & Deadlock Handling
+
+### 4.1 Conflict Detection
+
+Each robot continuously checks its planned trajectory against the **intent messages** of neighbors. A conflict exists if:
+- Two robots' space-time paths intersect within a safety margin (e.g., 0.5 m)
+- Two robots are converging on the same narrow intersection within a time window
+
+Conflicts are classified as:
+- **Edge conflict**: two robots traverse the same edge in opposite directions
+- **Vertex conflict**: two robots occupy the same node at the same time
+- **Deadlock**: cyclic waiting where no robot can proceed
+
+### 4.2 Deadlock Resolution Protocol
+
+When a deadlock is detected (no robot has moved for > 3 seconds and all are waiting), the following decentralized protocol runs:
+
+**Step 1 — Deadlock detection.** Each robot detects deadlock locally by monitoring its own velocity and the velocities of nearby robots. If the robot's speed has been below a threshold for > 3 s and at least one neighbor is also stationary, it enters deadlock mode.
+
+**Step 2 — Priority negotiation.** Robots exchange `ConflictMessage` packets containing their current priority score (a composite of distance-to-goal, task urgency, and battery level). The robot with the highest score becomes the **leader**; others become **followers**. Ties are broken by robot ID (deterministic).
+
+**Step 3 — Leader yields or proceeds.** If the leader can proceed without collision, it does so. If the leader is blocked by a follower that cannot move, the leader **temporarily yields** by selecting an alternate velocity (backing up or turning) to create space. This is inspired by the "temporary parking grid" strategy: one robot changes its path and waits on a temporary grid while others pass first.
+
+**Step 4 — Follower re-planning.** Followers re-plan their paths with the leader's new intent as a hard constraint. If a follower cannot find a valid path, it requests a **re-route** from the task allocation layer.
+
+This protocol is repeated until the deadlock clears or a timeout triggers escalation to the task re-allocation layer.
+
+### 4.3 Narrow Intersection Handling
+
+For narrow intersections (single-lane aisles), the framework uses a **token-based reservation system**. Each narrow segment has a virtual token. A robot approaching the segment broadcasts a `ReservationRequest`. If no other robot holds the token, the robot acquires it and proceeds. If the token is held, the robot waits at a designated holding point. The token is released when the robot exits the segment. This is a lightweight, decentralized version of resource reservation used in MAPF.
+
+---
+
+## 5. Task Allocation & Re-routing
+
+### 5.1 Decentralized Auction-Based Allocation
+
+Task allocation uses a **decentralized auction protocol**. When a new pickup task arrives (e.g., "retrieve item from Aisle 5, Shelf B"), any robot can act as auctioneer. The auctioneer broadcasts the task with a deadline. Each robot computes a bid based on:
+- Estimated travel time to pickup location (from its current position)
+- Current battery level (penalizes low battery)
+- Current task queue length
+- Congestion level along the estimated path (from neighbor intent messages)
+
+Bids are sent via `TaskBid` messages. The auctioneer selects the lowest bid and broadcasts the assignment. This approach removes single-point dependencies and enables bundled-task planning, which reduces communication and computation overhead. Auction-based task allocation has been shown to increase task success rate by 26.2% and improve energy efficiency by 38% in large-scale warehouse automation compared to centralized alternatives.
+
+### 5.2 Blocked Aisle Re-routing
+
+If a robot discovers a blocked aisle (e.g., a fallen box, a human worker, or a permanently stalled robot), it broadcasts a `BlockedRegion` message containing the polygon of the blocked area. All robots within communication range update their local occupancy grids and re-plan. The blocked region is also propagated via multi-hop relay so that robots outside direct communication range eventually receive it.
+
+The robot that discovered the blockage also triggers a **task re-auction** if the blockage invalidates its current task. The task returns to the auction pool, and other robots bid based on the updated map.
+
+### 5.3 Battery-Aware Allocation
+
+Battery level is a first-class constraint in task allocation. Robots below 20% battery are excluded from new task auctions unless the task is urgent and no other robot is available. Robots below 15% autonomously navigate to the nearest charging station and broadcast a `ChargingIntent` message so other robots can account for their absence. Battery-aware hierarchical task allocation (B-HTA) combines centralized and decentralized layers to optimize both task assignment and charging schedules.
+
+---
+
+## 6. Simulation Framework
+
+### 6.1 Platform: ROS 2 + Gazebo
+
+The simulation uses **ROS 2 Humble** with **Gazebo Classic** (or Gazebo Sim). Gazebo provides physics simulation, sensor models (2D LiDAR, IMU, odometry), and a warehouse world with shelves, aisles, and charging stations. Multi-robot simulation is supported via namespaced ROS 2 nodes, allowing each robot to run its own full stack in simulation.
+
+### 6.2 Robot Model
+
+Each simulated AMR is a differential-drive robot with:
+- 2D LiDAR (360°, 10 Hz) for obstacle detection
+- Wheel odometry
+- IMU
+- A rectangular footprint (0.6 m × 0.4 m)
+
+The robot's software stack includes:
+- `slam_toolbox` or a pre-built map for localization
+- `nav2` for navigation primitives (recovery behaviors, costmap management)
+- Custom ORCA local planner plugin
+- Custom intent broadcast and conflict resolution nodes
+- Auction client node
+
+### 6.3 Scenario Design
+
+The simulation should include the following scenarios for validation:
+
+| Scenario | Description | Success Metric |
+|----------|-------------|----------------|
+| **Overlapping paths** | 3 robots must traverse a shared corridor to reach goals on opposite sides | Zero collisions; ≥ 20% faster than stop-and-wait |
+| **Narrow intersection** | 4 robots converge on a 1-lane intersection from 4 directions | Deadlock-free completion within 2× single-robot time |
+| **Blocked aisle** | 3 robots operating; 1 aisle is blocked mid-run | All tasks completed with re-routing; no robot stuck > 5 s |
+| **Battery-aware** | 5 robots with varying battery levels; tasks arrive continuously | No robot runs out of battery; throughput degradation < 10% |
+
+### 6.4 Baseline for Comparison
+
+The baseline is a **stop-and-wait** method: when two robots detect a conflict, one stops and waits until the other passes. This is the simplest collision avoidance strategy and is commonly used in early AMR deployments. The framework must demonstrate ≥ 20% reduction in total task completion time compared to this baseline when handling overlapping paths. The success criterion is measured as:
+
+\[
+\text{Improvement} = \frac{T_{\text{baseline}} - T_{\text{framework}}}{T_{\text{baseline}}} \times 100\% \geq 20\%
+\]
+
+where \(T\) is the total time to complete all tasks across all robots.
+
+---
+
+## 7. Fleet Dashboard
+
+### 7.1 Architecture
+
+The dashboard is a **lightweight web application** that subscribes to ROS 2 telemetry topics via a ROS 2 WebSocket bridge (e.g., `rosbridge_suite`). It runs on a separate edge device (or a laptop on the same network) and does not participate in robot decision-making. The technology stack is:
+- **Backend**: ROS 2 WebSocket bridge + a lightweight Node.js or Python server
+- **Frontend**: React or Vue.js with Leaflet.js for the warehouse map
+- **Data transport**: WebSocket (topic subscriptions)
+
+### 7.2 Dashboard Features
+
+The dashboard displays:
+- **Real-time robot positions** on the warehouse floor plan, with color-coded status (moving, waiting, charging, blocked)
+- **Battery levels** as a bar or percentage next to each robot icon
+- **Current task and goal** per robot
+- **Intent paths** as translucent lines showing each robot's planned trajectory
+- **Conflict events** as pulsing markers at the location of deadlocks or near-misses
+- **Fleet KPIs**: total tasks completed, average task time, collision count (target: zero), deadlock count, battery distribution
+
+Open-source fleet management dashboards such as **helyOS** provide a reference architecture for connecting, controlling, and monitoring mobile machine fleets over a local network. **transAct** is another open-source dashboard template for robot fleet management with health monitoring and remote teleop. The custom dashboard can be built as a lightweight layer on top of these templates, focusing specifically on the metrics required by this framework.
+
+---
+
+## 8. Edge Hardware Considerations
+
+### 8.1 Compute Budget
+
+The framework must run on **Raspberry Pi 4** or **Jetson Nano**. The computational bottleneck is local collision avoidance and re-planning, not communication.
+
+| Component | Frequency | CPU (RPi4) | CPU (Jetson Nano) |
+|-----------|-----------|------------|-------------------|
+| DDS communication | 10–20 Hz | 10–15% | 8–12% |
+| ORCA local planner | 10–20 Hz | 20–30% | 15–25% |
+| A* global planner (re-plan on change) | 1–5 Hz | 15–25% | 10–20% |
+| Conflict detection | 10 Hz | 5–10% | 5–8% |
+| Task auction client | Event-driven | < 5% | < 5% |
+
+Total CPU usage: **55–85% on RPi4**, **40–70% on Jetson Nano**. The Jetson Nano provides additional GPU headroom for future perception modules (camera-based obstacle detection) but is not required for the core framework.
+
+### 8.2 Real-Time Guarantees
+
+ROS 2 with a real-time DDS implementation (FastDDS with `SCHED_FIFO` or CycloneDDS with real-time priorities) can provide bounded latency for conflict resolution. The local planner runs on a dedicated high-priority thread with a 50 ms deadline. If the planner misses a deadline, the robot falls back to a safe stop-and-wait behavior until the planner recovers.
+
+**Important limitation**: A Jetson Nano saturated all CPU cores at 100% and could not complete SLAM in real-time in one study, demonstrating the need for offloading SLAM to a pre-built map or using high-end onboard hardware. Therefore, the framework assumes a **pre-built map** distributed to all robots, not online SLAM. Localization uses odometry + LiDAR scan matching against the pre-built map, which is computationally feasible on both RPi4 and Jetson Nano.
+
+---
+
+## 9. Implementation Roadmap
+
+| Phase | Duration | Deliverable |
+|-------|----------|-------------|
+| **1. Simulation setup** | 2 weeks | Gazebo warehouse world + 3 simulated AMRs with ROS 2 namespacing |
+| **2. Communication stack** | 1 week | DDS topics for state, intent, bids; QoS tuning; multi-hop relay test |
+| **3. Global planner** | 1 week | A* on occupancy grid with rolling-horizon re-planning |
+| **4. Local planner** | 2 weeks | ORCA implementation + integration with Nav2 costmap |
+| **5. Conflict resolution** | 2 weeks | Deadlock detection, priority negotiation, token-based narrow intersection |
+| **6. Task allocation** | 1 week | Decentralized auction protocol + battery-aware bidding |
+| **7. Dashboard** | 1 week | Web UI with real-time robot positions, battery, tasks, conflicts |
+| **8. Benchmark** | 1 week | Run all scenarios, compare against stop-and-wait baseline, compute improvement |
+
+---
+
+## 10. Expected Performance
+
+Based on published results from similar systems:
+
+- **Collision avoidance**: ORCA + deadlock recovery achieves 100% success on warehouse benchmark scenarios, with collision-steps reduced from thousands to near-zero.
+- **Task completion time**: Decentralized auction-based allocation with conflict-aware routing reduces total task time by 20–40% compared to static allocation or stop-and-wait.
+- **Deadlock resolution**: Priority-based deadlock recovery reduces average computation time by 36.2% compared to fixed-priority methods.
+- **Communication reliability**: DDS with QoS tuning maintains > 95% message delivery for intent messages at 5 Hz, even with 10% packet loss on state topics.
+
+The framework is designed to meet the success criteria: **zero inter-robot collisions** and **≥ 20% reduction in total task completion time** compared to stop-and-wait on overlapping paths.

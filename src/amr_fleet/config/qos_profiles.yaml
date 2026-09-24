@@ -1,0 +1,39 @@
+# DDS / ROS 2 Quality of Service (QoS) Configuration
+# Optimized for high-throughput edge Wi-Fi mesh networks (Raspberry Pi 4 / Jetson Nano)
+
+qos_profiles:
+  fleet_state:
+    topic_pattern: "/fleet/*/state"
+    history: "keep_last"
+    depth: 5
+    reliability: "best_effort"
+    durability: "volatile"
+    deadline_ms: 100
+    description: "High-frequency (10-20 Hz) telemetry; tolerate packet loss, reject stale data"
+
+  fleet_intent:
+    topic_pattern: "/fleet/*/intent"
+    history: "keep_last"
+    depth: 10
+    reliability: "reliable"
+    durability: "transient_local"
+    deadline_ms: 0
+    description: "Low-frequency (2-5 Hz) path broadcast; guaranteed delivery with late-joiner persistence"
+
+  fleet_bid:
+    topic_pattern: "/fleet/*/bid"
+    history: "keep_last"
+    depth: 50
+    reliability: "reliable"
+    durability: "volatile"
+    deadline_ms: 0
+    description: "Event-driven auction bids; strictly reliable to avoid missed bids"
+
+  fleet_conflict:
+    topic_pattern: "/fleet/*/conflict"
+    history: "keep_last"
+    depth: 50
+    reliability: "reliable"
+    durability: "volatile"
+    deadline_ms: 0
+    description: "Event-driven deadlock & token negotiation; high priority, guaranteed delivery"

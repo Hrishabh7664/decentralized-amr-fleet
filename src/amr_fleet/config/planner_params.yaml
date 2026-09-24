@@ -1,0 +1,50 @@
+# Planner & Coordination Parameters for Decentralized AMR Fleet
+
+global_planner:
+  algorithm: "AStar"
+  grid:
+    resolution: 0.5           # meters per cell
+    inflation_radius: 0.50    # meters (robot radius 0.35 + safety margin 0.15)
+  rolling_horizon:
+    enabled: true
+    time_horizon_s: 8.0       # Lookahead horizon window in seconds
+    nominal_speed_mps: 0.5    # Cruise speed along waypoints
+  replanning:
+    on_blocked_region: true
+    on_new_task: true
+    periodic_rate_hz: 1.0
+
+local_planner_orca:
+  algorithm: "ORCA_2D"
+  update_rate_hz: 20.0        # Control loop frequency
+  time_horizon: 2.5           # Time horizon for peer reciprocal avoidance (seconds)
+  time_horizon_obstacles: 1.0 # Time horizon for static costmap obstacles (seconds)
+  neighbor_dist_threshold: 3.0 # Consider peers within 3.0 meters
+  max_neighbors: 10
+  agent_radius: 0.35          # Agent physical radius
+  safety_margin: 0.10         # Extra buffer
+  max_speed: 0.8              # Absolute velocity cap
+  fallback_safe_stop: true    # Brake to stop if LP is infeasible
+
+conflict_resolver:
+  safety_distance: 0.80       # Minimum inter-robot center-to-center distance (meters)
+  deadlock_detection:
+    timeout_s: 3.0            # Trigger negotiation if stationary for > 3.0 seconds
+    speed_threshold: 0.05     # Speed considered stopped (m/s)
+  priority_weights:
+    distance_to_goal: 0.45    # Closer robot receives higher priority
+    task_urgency: 0.35        # Priority for time-critical pickup
+    battery_state: 0.20       # Lower battery gets bonus to avoid stranding
+  corridor_token:
+    enabled: true
+    queue_timeout_s: 15.0
+
+task_allocator:
+  auction_protocol: "Decentralized_Marginal_Cost"
+  bid_timeout_s: 0.50         # Peer response window in seconds
+  cost_weights:
+    travel_time: 0.50
+    battery_penalty: 0.25
+    queue_length: 0.15
+    congestion: 0.10
+  re_auction_on_blockage: true

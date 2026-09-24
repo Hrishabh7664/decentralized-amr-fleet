@@ -1,0 +1,35 @@
+# Physical, Kinematic, and Battery Parameters for Warehouse AMR
+amr:
+  dimensions:
+    length: 0.60  # meters
+    width: 0.40   # meters
+    height: 0.25  # meters
+    footprint_radius: 0.35  # meters (bounding radius)
+    wheel_radius: 0.08      # meters
+    wheel_separation: 0.36  # meters
+
+  kinematics:
+    max_linear_velocity: 0.80     # m/s
+    min_linear_velocity: -0.20    # m/s (reverse allowed for backing out of deadlocks)
+    max_angular_velocity: 1.50    # rad/s
+    max_linear_acceleration: 1.00 # m/s^2
+    max_angular_acceleration: 2.00 # rad/s^2
+
+  sensors:
+    lidar:
+      topic: "scan"
+      range_min: 0.12
+      range_max: 12.0
+      field_of_view: 6.28318  # 360 deg
+      frequency: 10.0         # Hz
+    imu:
+      topic: "imu"
+      frequency: 50.0
+
+  battery:
+    capacity_pct: 100.0
+    idle_discharge_rate: 0.01        # % per second idle
+    kinetic_discharge_factor: 0.10   # % per m/s traveled
+    auction_exclusion_threshold: 20.0 # Exclude from new tasks if below 20%
+    critical_charging_threshold: 15.0 # Preempt task and route to charger if below 15%
+    recharge_rate: 2.5               # % per second while docked
