@@ -4,6 +4,56 @@ This document details the mathematical models, geometric formulations, and optim
 
 ---
 
+## Algorithmic Pipeline Overview
+
+```mermaid
+flowchart TD
+    subgraph S1 ["Stage 1: Global Path Planning (Rolling-Horizon A*)"]
+        Grid["<b>Warehouse Costmap Representation</b><br/>• 2D Occupancy Grid (Resolution: 0.50 m/cell)<br/>• Dynamic Obstacle Inflation (Safety Radius: 0.50m)"]
+        AStar["<b>8-Connected 2D A* Path Search</b><br/>• Admissible Octile Distance Heuristic<br/>• Finds Optimal Global Path around Shelves & Obstacles"]
+        Horizon["<b>Rolling-Horizon Window Extractor</b><br/>• Extracts 8.0-Second Local Lookahead Horizon (4.0m)<br/>• Computes Preferred Velocity Vector v_pref (0.5 m/s)"]
+
+        Grid -->|Inflated Costmap| AStar
+        AStar -->|Full Static Route| Horizon
+    end
+
+    subgraph S2 ["Stage 2: Local Reactive Collision Avoidance (2D ORCA @ 20 Hz)"]
+        Peers["<b>Peer & Obstacle State Tracking</b><br/>• DDS <code>/fleet/{id}/state</code> Telemetry at 20 Hz<br/>• Relative Position & Velocity Vectors: p = p_B - p_A, v = v_A - v_B"]
+        VOCone["<b>Velocity Obstacle (VO) Cone Generation</b><br/>• Truncated Collision Cones for Neighbors within 3.0m<br/>• Accounts for Combined Robot Radii (r_A + r_B = 0.70m)"]
+        HalfPlane["<b>Reciprocal Responsibility Half-Planes</b><br/>• 50% Reciprocal Velocity Displacement (u / 2)<br/>• Normal Vector n Defines Safe Feasible Velocity Half-Plane"]
+        LPSolver["<b>2D Linear Program Solver (20 Hz)</b><br/>• Objective: min ||v - v_pref||² subject to ||v|| ≤ v_max<br/>• Linear-Time Seidel Algorithm (&lt; 2.5 ms on edge CPU)"]
+        OutputVel["<b>Feasible Velocity Command Output</b><br/>• Smooth Collision-Free Twist (v, ω) dispatched to Motors<br/>• Safe-Stop Fallback Activated if Feasible Region is Empty"]
+
+        Peers -->|Relative Vectors| VOCone
+        VOCone -->|Boundary Displacement u| HalfPlane
+        HalfPlane -->|Convex Half-Plane Constraints| LPSolver
+        LPSolver -->|Optimal Safe Velocity| OutputVel
+    end
+
+    subgraph S3 ["Stage 3: Multi-Agent Deadlock & Conflict Resolution"]
+        StallDetect{"<b>Deadlock & Contention Monitor</b><br/>• AMR Stalled Speed &lt; 0.05 m/s for &gt; 3.0 s<br/>• Or Head-on Corridor Contention (v_A · v_B &lt; -0.7)"}
+        PriorityScore["<b>Composite Priority Scoring Engine</b><br/>• 45% Distance to Goal (Clears Choke Points Fast)<br/>• 35% Task Urgency (High-Priority Order Fulfillment)<br/>• 20% Battery Reserve Bonus (Prevents Depletion)"]
+        TieBreaker{"<b>Deterministic Decision</b><br/>Higher Priority Score<br/>or Lower Robot ID"}
+        Leader["<b>Leader Role (Proceed)</b><br/>• Acquires Virtual Corridor Token<br/>• Maintains Preferred Trajectory v_pref"]
+        Follower["<b>Follower Role (Yield & Replan)</b><br/>• Yields Right-of-Way to Leader<br/>• Holds at Siding or Plans Alternative Aisle"]
+        Auction["<b>P2P Task Auction Protocol</b><br/>• Marginal Cost: Travel + Battery + Queue<br/>• AMRs with Battery &lt; 20% Excluded<br/>• Lowest Marginal Cost Wins Order"]
+
+        StallDetect -->|Deadlock Confirmed| PriorityScore
+        PriorityScore -->|Calculated Score S| TieBreaker
+        TieBreaker -->|Winner / Higher Score| Leader
+        TieBreaker -->|Yield / Lower Score| Follower
+    end
+
+    %% Inter-Stage Pipeline Flow
+    Horizon ==>|Reference Velocity v_pref| LPSolver
+    OutputVel -.->|Monitors Velocity & Stalls| StallDetect
+    Follower ==>|Imposes Stop / Holding Constraint| LPSolver
+    Leader -.->|Broadcasts Token Reservation| Peers
+    Auction ==>|Dispatches Assigned Goal Waypoint| AStar
+```
+
+---
+
 ## 1. Global Path Planning: A* on Occupancy Grid with Rolling Horizon
 
 ### 1.1 2D Occupancy Grid Representation
