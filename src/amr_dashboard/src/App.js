@@ -73,8 +73,15 @@ export default function App() {
       console.warn('ROS bridge unavailable, initializing simulated telemetry stream');
     }
 
-    // Dynamic telemetry generator (simulates live AMR coordination if rosbridge is inactive)
+    // Dynamic telemetry generator (ONLY active if rosbridge is disconnected)
+    let isWsOpen = false;
+    if (ws) {
+      ws.addEventListener('open', () => { isWsOpen = true; });
+      ws.addEventListener('close', () => { isWsOpen = false; });
+    }
+
     const simTimer = setInterval(() => {
+      if (isWsOpen) return; // Do not overwrite live robot telemetry with synthetic mock data!
       setRobots(prev => {
         const time = Date.now() / 1000;
         const simData = { ...prev };

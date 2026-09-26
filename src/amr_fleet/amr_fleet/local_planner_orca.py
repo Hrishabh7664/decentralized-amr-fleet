@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Optimal Reciprocal Collision Avoidance (ORCA) 2D Local Planner.
 Solves reciprocal velocity obstacles via convex half-plane linear programming.
@@ -10,7 +11,7 @@ import time
 from typing import List, Tuple, Optional, Dict
 from dataclasses import dataclass
 
-from amr_fleet.utils import Vector2D, Pose2D, Twist2D, normalize_angle
+from amr_fleet.utils import Vector2D, Pose2D, Twist2D, normalize_angle, quaternion_to_yaw
 
 
 @dataclass
@@ -132,14 +133,42 @@ class ORCAPlanner:
         dist_sq = rel_pos.norm_sq()
         dist = math.sqrt(dist_sq)
 
-        w = vel_a - inv_tau * rel_pos
-        w_norm = w.norm()
-        unit_w = w / max(1e-6, w_norm)
+        line = Line2D(Vector2D(0.0, 0.0), Vector2D(0.0, 0.0))
 
-        line = Line2D(
-            point=vel_a + (combined_radius * inv_tau - w_norm) * unit_w,
-            direction=Vector2D(unit_w.y, -unit_w.x)
-        )
+        if dist > combined_radius:
+            w = vel_a - inv_tau * rel_pos
+            w_norm_sq = w.norm_sq()
+            dot_product = w.dot(rel_pos)
+
+            if dot_product < 0.0 and (dot_product * dot_product) > (combined_radius * combined_radius * w_norm_sq):
+                w_norm = math.sqrt(w_norm_sq)
+                unit_w = w / max(1e-6, w_norm)
+                line.direction = Vector2D(unit_w.y, -unit_w.x)
+                u = (combined_radius * inv_tau - w_norm) * unit_w
+            else:
+                leg = math.sqrt(max(0.0, dist_sq - combined_radius * combined_radius))
+                if rel_pos.det(w) > 0.0:
+                    line.direction = Vector2D(
+                        rel_pos.x * leg - rel_pos.y * combined_radius,
+                        rel_pos.x * combined_radius + rel_pos.y * leg
+                    ) / dist_sq
+                else:
+                    line.direction = -Vector2D(
+                        rel_pos.x * leg + rel_pos.y * combined_radius,
+                        -rel_pos.x * combined_radius + rel_pos.y * leg
+                    ) / dist_sq
+
+                dot = vel_a.dot(line.direction)
+                u = dot * line.direction - vel_a
+        else:
+            inv_time_step = 1.0 / max(1e-4, self.time_step)
+            w = vel_a - inv_time_step * rel_pos
+            w_norm = w.norm()
+            unit_w = w / max(1e-6, w_norm)
+            line.direction = Vector2D(unit_w.y, -unit_w.x)
+            u = (combined_radius * inv_time_step - w_norm) * unit_w
+
+        line.point = vel_a + u
         return line
 
     def compute_velocity(
@@ -249,11 +278,12 @@ class ORCAPlanner:
 
     def _fallback_safe_stop(self, lines: List[Line2D], pref_vel: Vector2D) -> Vector2D:
         """
-        Safe-stop fallback: decelerate to zero velocity or creep forward at minimal safe speed.
+        Safe-stop fallback: decelerate to zero velocity or relax constraints.
+        If zero velocity is feasible or safe, stop.
+        Otherwise find the least-violating velocity direction via constraint relaxation.
         """
-        # Test zero velocity
-        is_zero_safe = True
         zero_vel = Vector2D(0.0, 0.0)
+        is_zero_safe = True
         for line in lines:
             if line.direction.det(line.point - zero_vel) > 0.0:
                 is_zero_safe = False
@@ -262,8 +292,17 @@ class ORCAPlanner:
         if is_zero_safe:
             return zero_vel
 
-        # Return scaled-down creep velocity or complete stop
-        return Vector2D(0.0, 0.0)
+        # If zero velocity is unsafe, relax halfplanes outward to find escape velocity
+        for relaxation in [0.2, 0.5, 1.0, 2.0]:
+            relaxed_lines = [
+                Line2D(point=l.point - relaxation * Vector2D(-l.direction.y, l.direction.x), direction=l.direction)
+                for l in lines
+            ]
+            success, relaxed_vel = self._linear_program2(relaxed_lines, self.max_speed * 0.5, pref_vel * 0.5)
+            if success:
+                return relaxed_vel
+
+        return zero_vel
 
 
 # ==============================================================================
@@ -299,6 +338,7 @@ def main(args=None):
             self.current_vel = Vector2D(0.0, 0.0)
             self.path_waypoints: List[Vector2D] = []
             self.neighbor_states: Dict[str, AgentState] = {}
+            self.peer_last_times: Dict[str, float] = {}
             self.static_obstacles: List[Vector2D] = []
 
             # Subscriptions
@@ -324,16 +364,22 @@ def main(args=None):
         def pose_callback(self, msg: PoseStamped):
             self.current_pose.x = msg.pose.position.x
             self.current_pose.y = msg.pose.position.y
+            q = msg.pose.orientation
+            if abs(q.w) > 1e-4 or abs(q.z) > 1e-4:
+                self.current_pose.theta = quaternion_to_yaw(q.x, q.y, q.z, q.w)
 
         def peer_pose_callback(self, msg: PoseStamped, peer_id: str):
             pos = Vector2D(msg.pose.position.x, msg.pose.position.y)
-            # Estimate peer velocity
-            if peer_id in self.neighbor_states:
+            now = time.time()
+            if peer_id in self.neighbor_states and peer_id in self.peer_last_times:
                 old_state = self.neighbor_states[peer_id]
-                dt = 0.1
+                dt = max(0.01, now - self.peer_last_times[peer_id])
                 vel = (pos - old_state.position) / dt
+                if vel.norm() > 2.0:
+                    vel = vel.normalized() * 2.0
             else:
                 vel = Vector2D(0.0, 0.0)
+            self.peer_last_times[peer_id] = now
             self.neighbor_states[peer_id] = AgentState(id=peer_id, position=pos, velocity=vel)
 
         def plan_callback(self, msg: Path):

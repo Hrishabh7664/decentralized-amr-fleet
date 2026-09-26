@@ -6,7 +6,7 @@
 [![DDS](https://img.shields.io/badge/DDS-Peer_to_Peer_Mesh-purple.svg)](https://www.omg.org/spec/DDS/)
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-14_Passing-success.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-23_Passing-success.svg)](tests/)
 [![Collisions](https://img.shields.io/badge/Collisions-Zero_(0)-brightgreen.svg)](docs/benchmark.md)
 [![Speedup](https://img.shields.io/badge/Speedup-+47.6%25_to_+68.9%25-brightgreen.svg)](docs/benchmark.md)
 
@@ -377,7 +377,7 @@ python -m unittest discover tests
 pytest tests/ -v
 ```
 
-All **14 test suites pass** with zero failures:
+All **23 unit test suites pass** with zero failures:
 ```
 test_obstacle_avoidance (test_planner.TestGlobalPlanner) ... ok
 test_rolling_horizon_extraction (test_planner.TestGlobalPlanner) ... ok
@@ -393,8 +393,17 @@ test_battery_exclusion_threshold (test_auction.TestAuctionTaskAllocation) ... ok
 test_bid_cost_travel_distance (test_auction.TestAuctionTaskAllocation) ... ok
 test_blocked_aisle_re_auction (test_auction.TestAuctionTaskAllocation) ... ok
 test_critical_battery_dock_routing (test_auction.TestAuctionTaskAllocation) ... ok
+test_linear_program_speed_limit (test_orca.TestORCALocalPlanner) ... ok
+test_orca_halfplane_diverging (test_orca.TestORCALocalPlanner) ... ok
+test_orca_halfplane_head_on (test_orca.TestORCALocalPlanner) ... ok
+test_safe_stop_fallback (test_orca.TestORCALocalPlanner) ... ok
+test_static_obstacle_avoidance (test_orca.TestORCALocalPlanner) ... ok
+test_cache_capacity_pruning (test_relay.TestMessageRelayCache) ... ok
+test_duplicate_message_suppressed (test_relay.TestMessageRelayCache) ... ok
+test_first_message_allowed (test_relay.TestMessageRelayCache) ... ok
+test_ttl_expiration (test_relay.TestMessageRelayCache) ... ok
 ----------------------------------------------------------------------
-Ran 14 tests in 0.005s
+Ran 23 tests in 0.003s
 
 OK
 ```
@@ -442,7 +451,8 @@ decentralized-amr-fleet/
 │   │   ├── config/                # Tunable configuration parameters
 │   │   │   ├── robot_params.yaml      # Chassis geometry, kinematic limits, battery specs
 │   │   │   ├── planner_params.yaml    # A* grid resolution, ORCA horizons, auction weights
-│   │   │   └── qos_profiles.yaml      # ROS 2 QoS profile definitions
+│   │   │   ├── qos_profiles.yaml      # ROS 2 QoS profile definitions
+│   │   │   └── cyclonedds.xml         # CycloneDDS peer-to-peer multicast mesh profile
 │   │   └── worlds/
 │   │       └── warehouse.world        # Gazebo Classic world with shelves, choke, and docks
 │   ├── amr_description/           # Robot URDF model and spawning
@@ -469,10 +479,15 @@ decentralized-amr-fleet/
 │   ├── benchmark_framework.py     # Decentralized ORCA framework simulation
 │   ├── compare_benchmarks.py      # CSV comparison and KPI verification
 │   └── run_scenarios.sh           # Automated headless runner
-└── tests/                         # Unit test suite
-    ├── test_planner.py            # Tests for A* search, inflation, and rolling horizon
-    ├── test_conflict.py           # Tests for priority negotiation, deadlocks, and tokens
-    └── test_auction.py            # Tests for auction bids, battery thresholds, and docks
+├── tests/                         # Unit test suite (23 tests passing)
+│   ├── test_planner.py            # Tests for A* search, inflation, and rolling horizon
+│   ├── test_conflict.py           # Tests for priority negotiation, deadlocks, and tokens
+│   ├── test_auction.py            # Tests for auction bids, battery thresholds, and docks
+│   ├── test_orca.py               # Tests for 2D ORCA half-planes and linear programming
+│   └── test_relay.py              # Tests for message relay cache and broadcast suppression
+└── .github/
+    └── workflows/
+        └── ci.yml                 # Automated GitHub Actions test & benchmark runner
 ```
 
 ---

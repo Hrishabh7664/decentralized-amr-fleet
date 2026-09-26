@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Decentralized Auction-Based Task Allocator with Battery Awareness.
 Any robot can act as an auctioneer to broadcast tasks and collect bids.
@@ -179,7 +180,7 @@ def main(args=None):
     try:
         import rclpy
         from rclpy.node import Node
-        from std_msgs.msg import String
+        from std_msgs.msg import String, Float32
         from geometry_msgs.msg import PoseStamped, Point
     except ImportError:
         print("[TaskAllocator] rclpy not detected; run in pure Python or ROS 2 container.")
@@ -199,12 +200,15 @@ def main(args=None):
 
             # Publishers & Subscribers
             self.bid_pub = self.create_publisher(String, f'/fleet/{self.robot_id}/bid', 10)
+            self.fleet_bid_pub = self.create_publisher(String, '/fleet/bids', 10)
             self.assignment_pub = self.create_publisher(String, '/fleet/task_assignments', 10)
             self.goal_pub = self.create_publisher(Point, f'/fleet/{self.robot_id}/goal', 10)
 
             self.create_subscription(PoseStamped, f'/{self.robot_id}/pose', self.pose_callback, 10)
+            self.create_subscription(Float32, f'/fleet/{self.robot_id}/battery', self.battery_callback, 10)
             self.create_subscription(String, '/fleet/new_tasks', self.new_task_callback, 10)
             self.create_subscription(String, '/fleet/bids', self.peer_bid_callback, 10)
+            self.create_subscription(String, '/fleet/task_assignments', self.assignment_callback, 10)
 
             self.timer = self.create_timer(0.1, self.auction_tick)
             self.get_logger().info(f"TaskAllocator initialized for {self.robot_id}")
@@ -212,8 +216,11 @@ def main(args=None):
         def pose_callback(self, msg: PoseStamped):
             self.current_pos = Vector2D(msg.pose.position.x, msg.pose.position.y)
 
+        def battery_callback(self, msg: Float32):
+            self.battery_percentage = float(msg.data)
+
         def new_task_callback(self, msg: String):
-            # Parse task JSON or format "id:px,py:dx,dy:urgency"
+            # Parse task format: "task_id:px,py:dx,dy:urgency"
             try:
                 parts = msg.data.split(':')
                 task_id = parts[0]
@@ -228,17 +235,59 @@ def main(args=None):
                     urgency=urgency
                 )
 
-                # Compute bid and broadcast
+                # Compute bid and broadcast to fleet
                 bid = self.allocator.compute_bid(task, self.current_pos, self.battery_percentage)
                 if bid.eligible:
                     bid_msg = String()
-                    bid_msg.data = f"{bid.task_id},{bid.robot_id},{bid.bid_cost:.2f}"
+                    bid_msg.data = f"{bid.task_id},{bid.robot_id},{bid.bid_cost:.2f},{bid.estimated_distance:.2f},{self.battery_percentage:.1f}"
                     self.bid_pub.publish(bid_msg)
+                    self.fleet_bid_pub.publish(bid_msg)
+
+                # Also start local auction tracker if this node is auctioneer
+                if task_id not in self.allocator.active_auctions:
+                    self.allocator.start_auction(task)
+                    if bid.eligible:
+                        self.allocator.receive_bid(bid)
             except Exception as e:
                 self.get_logger().warn(f"Failed to process task: {e}")
 
         def peer_bid_callback(self, msg: String):
-            pass
+            try:
+                parts = msg.data.split(',')
+                if len(parts) >= 3:
+                    task_id = parts[0]
+                    robot_id = parts[1]
+                    bid_cost = float(parts[2])
+                    dist = float(parts[3]) if len(parts) > 3 else 0.0
+                    bat = float(parts[4]) if len(parts) > 4 else 100.0
+                    bid_data = TaskBidData(
+                        task_id=task_id,
+                        robot_id=robot_id,
+                        bid_cost=bid_cost,
+                        estimated_distance=dist,
+                        battery_percentage=bat,
+                        eligible=(bid_cost < float('inf'))
+                    )
+                    self.allocator.receive_bid(bid_data)
+            except Exception as e:
+                self.get_logger().debug(f"Failed to parse peer bid: {e}")
+
+        def assignment_callback(self, msg: String):
+            try:
+                # Format: "task_id:winner_id:px,py"
+                parts = msg.data.split(':')
+                if len(parts) >= 2:
+                    task_id = parts[0]
+                    winner_id = parts[1]
+                    if winner_id == self.robot_id and len(parts) >= 3:
+                        px, py = [float(v) for v in parts[2].split(',')]
+                        self.get_logger().info(f"Task {task_id} assigned to me ({self.robot_id})! Driving to pickup ({px}, {py}).")
+                        goal = Point()
+                        goal.x = px
+                        goal.y = py
+                        self.goal_pub.publish(goal)
+            except Exception as e:
+                self.get_logger().debug(f"Assignment callback parse: {e}")
 
         def auction_tick(self):
             # Resolve pending auctions where this robot is auctioneer
@@ -246,10 +295,21 @@ def main(args=None):
                 result = self.allocator.resolve_auction(task_id)
                 if result:
                     winner_id, cost = result
+                    auction = self.allocator.active_auctions[task_id]
+                    task = auction["task"]
                     self.get_logger().info(f"Task {task_id} awarded to {winner_id} with bid {cost:.2f}")
+
+                    # Broadcast assignment with pickup location
                     assign_msg = String()
-                    assign_msg.data = f"{task_id}:{winner_id}"
+                    assign_msg.data = f"{task_id}:{winner_id}:{task.pickup_location.x:.2f},{task.pickup_location.y:.2f}"
                     self.assignment_pub.publish(assign_msg)
+
+                    # If this robot won its own auction, dispatch goal immediately
+                    if winner_id == self.robot_id:
+                        goal = Point()
+                        goal.x = task.pickup_location.x
+                        goal.y = task.pickup_location.y
+                        self.goal_pub.publish(goal)
 
     node = TaskAllocatorNode()
     try:

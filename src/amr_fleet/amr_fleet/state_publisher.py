@@ -1,14 +1,16 @@
+#!/usr/bin/env python3
 """
 State Publisher Node.
 Publishes telemetry (pose, twist, battery, operating state) to /fleet/{id}/state
 at 10-20 Hz using BEST_EFFORT QoS with a 100ms deadline.
+Also publishes PoseStamped to /{id}/pose for internal node consumption.
 """
 
 from __future__ import annotations
 import math
 import time
 
-from amr_fleet.utils import Pose2D, Twist2D, Vector2D, get_state_qos
+from amr_fleet.utils import Pose2D, Twist2D, Vector2D, get_state_qos, quaternion_to_yaw
 
 
 def main(args=None):
@@ -50,6 +52,9 @@ def main(args=None):
             else:
                 self.state_pub = self.create_publisher(String, f'/fleet/{self.robot_id}/state', 10)
 
+            # Internal pose publisher so other onboard nodes receive PoseStamped
+            self.pose_pub = self.create_publisher(PoseStamped, f'/{self.robot_id}/pose', 10)
+
             # Subscriptions
             self.create_subscription(Odometry, f'/{self.robot_id}/odom', self.odom_callback, 10)
             self.create_subscription(Float32, f'/fleet/{self.robot_id}/battery', self.battery_callback, 10)
@@ -61,9 +66,18 @@ def main(args=None):
         def odom_callback(self, msg: Odometry):
             self.current_pose.x = msg.pose.pose.position.x
             self.current_pose.y = msg.pose.pose.position.y
+            q = msg.pose.pose.orientation
+            self.current_pose.theta = quaternion_to_yaw(q.x, q.y, q.z, q.w)
+
             self.current_twist.linear.x = msg.twist.twist.linear.x
             self.current_twist.linear.y = msg.twist.twist.linear.y
             self.current_twist.angular = msg.twist.twist.angular.z
+
+            # Publish PoseStamped so other onboard nodes receive current pose
+            ps = PoseStamped()
+            ps.header = msg.header
+            ps.pose = msg.pose.pose
+            self.pose_pub.publish(ps)
 
             if abs(self.current_twist.linear.x) > 0.05 or abs(self.current_twist.angular) > 0.05:
                 if self.current_state != "RESOLVING_CONFLICT":

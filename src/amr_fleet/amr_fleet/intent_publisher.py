@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Intent Publisher Node.
 Publishes planned path, target goal, ETA, priority score, and token reservations to /fleet/{id}/intent

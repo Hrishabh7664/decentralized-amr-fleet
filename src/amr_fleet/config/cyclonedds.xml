@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!-- CycloneDDS Peer-to-Peer Mesh Configuration -->
+<!-- Tuned for dynamic industrial AMR fleets with Wi-Fi loss resilience -->
+<CycloneDDS xmlns="https://cdds.io/config" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="https://cdds.io/config https://raw.githubusercontent.com/eclipse-cyclonedds/cyclonedds/master/etc/cyclonedds.xsd">
+    <Domain id="any">
+        <General>
+            <!-- Bind to specific network interface or allow auto-detection -->
+            <NetworkInterfaceAddress>auto</NetworkInterfaceAddress>
+            <AllowMulticast>true</AllowMulticast>
+            <EnableMulticastLoopback>true</EnableMulticastLoopback>
+            <MaxMessageSize>65500B</MaxMessageSize>
+        </General>
+        <Discovery>
+            <!-- Discovery lease duration: detect lost AMR peers within 3 seconds -->
+            <LeaseDuration>3s</LeaseDuration>
+            <!-- SPDP interval: broadcast peer presence every 500ms -->
+            <ParticipantIndex>auto</ParticipantIndex>
+            <!-- Peer addresses for unicast discovery fallback across Wi-Fi dead zones -->
+            <Peers>
+                <Peer address="239.255.0.1"/>
+            </Peers>
+        </Discovery>
+        <Internal>
+            <Watermarks>
+                <WhcHigh>500kB</WhcHigh>
+            </Watermarks>
+            <DeliveryQueueCapacity>1024</DeliveryQueueCapacity>
+        </Internal>
+    </Domain>
+</CycloneDDS>

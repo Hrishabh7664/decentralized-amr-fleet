@@ -412,7 +412,7 @@
         let ws = null;
         try {
           ws = new WebSocket('ws://localhost:9090');
-          ws.onopen = () => setConnected(true);
+          ws.onopen = () => { isWsOpen = true; setConnected(true); };
           ws.onmessage = (event) => {
             try {
               const data = JSON.parse(event.data);
@@ -422,11 +422,13 @@
               else if (topic.includes('/conflict')) setConflicts(prev => [data.msg, ...prev].slice(0, 50));
             } catch (err) {}
           };
-          ws.onerror = () => setConnected(false);
-          ws.onclose = () => setConnected(false);
+          ws.onerror = () => { isWsOpen = false; setConnected(false); };
+          ws.onclose = () => { isWsOpen = false; setConnected(false); };
         } catch (e) {}
 
+        let isWsOpen = false;
         const simTimer = setInterval(() => {
+          if (isWsOpen) return; // Do not overwrite live robot telemetry with synthetic mock data!
           setRobots(prev => {
             const time = Date.now() / 1000;
             const simData = { ...prev };

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Global Path Planner using A* on 2D Occupancy Grid with Rolling Horizon.
 Supports dynamic obstacle inflation, blocked aisle re-routing, and rolling-horizon windowing.

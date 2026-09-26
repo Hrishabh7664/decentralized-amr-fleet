@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Conflict Resolution & Deadlock Handling Node.
 Detects edge conflicts, vertex conflicts, and stationary deadlocks (>3s).
@@ -219,7 +220,7 @@ def main(args=None):
         from rclpy.node import Node
         from geometry_msgs.msg import Twist, PoseStamped, Point
         from nav_msgs.msg import Path
-        from std_msgs.msg import String
+        from std_msgs.msg import String, Float32
     except ImportError:
         print("[ConflictResolver] rclpy not detected; run in pure Python or ROS 2 container.")
         return
@@ -233,32 +234,41 @@ def main(args=None):
             self.declare_parameter('safety_dist', 0.8)
 
             self.robot_id = self.get_parameter('robot_id').get_parameter_value().string_value
-            safety_dist = self.declare_parameter('safety_dist', 0.8).get_parameter_value().double_value
+            safety_dist = self.get_parameter('safety_dist').get_parameter_value().double_value
 
             self.resolver = ConflictResolver(self.robot_id, safety_distance=safety_dist)
             self.current_pos = Vector2D(0.0, 0.0)
             self.current_speed = 0.0
+            self.last_pose_time = time.time()
             self.goal_pos: Optional[Vector2D] = None
             self.battery_pct = 100.0
             self.planned_path: List[Vector2D] = []
             self.peer_intents: Dict[str, RobotIntentData] = {}
+            self.peer_speeds: Dict[str, float] = {}
 
             # Publishers & Subscribers
             self.conflict_pub = self.create_publisher(String, f'/fleet/{self.robot_id}/conflict', 10)
+            self.fleet_conflict_pub = self.create_publisher(String, '/fleet/conflicts', 10)
             self.replan_pub = self.create_publisher(Point, f'/fleet/{self.robot_id}/replan_trigger', 10)
 
             self.create_subscription(PoseStamped, f'/{self.robot_id}/pose', self.pose_callback, 10)
             self.create_subscription(Path, f'/fleet/{self.robot_id}/plan', self.plan_callback, 10)
-            self.create_subscription(String, '/fleet/conflict_broadcast', self.conflict_broadcast_callback, 10)
+            self.create_subscription(Float32, f'/fleet/{self.robot_id}/battery', self.battery_callback, 10)
+            self.create_subscription(String, '/fleet/conflicts', self.conflict_broadcast_callback, 10)
 
             self.timer = self.create_timer(0.2, self.resolution_loop)  # 5 Hz
             self.get_logger().info(f"ConflictResolver active for {self.robot_id}")
 
         def pose_callback(self, msg: PoseStamped):
             new_pos = Vector2D(msg.pose.position.x, msg.pose.position.y)
-            dt = 0.1
+            now = time.time()
+            dt = max(0.01, now - self.last_pose_time)
             self.current_speed = (new_pos - self.current_pos).norm() / dt
+            self.last_pose_time = now
             self.current_pos = new_pos
+
+        def battery_callback(self, msg: Float32):
+            self.battery_pct = float(msg.data)
 
         def plan_callback(self, msg: Path):
             self.planned_path = [Vector2D(ps.pose.position.x, ps.pose.position.y) for ps in msg.poses]
@@ -266,8 +276,35 @@ def main(args=None):
                 self.goal_pos = self.planned_path[-1]
 
         def conflict_broadcast_callback(self, msg: String):
-            # Peer broadcast conflict info
-            pass
+            try:
+                parts = msg.data.split(':')
+                cmd = parts[0]
+                if cmd == "DEADLOCK":
+                    peer_id = parts[1]
+                    peer_pri = float(parts[2])
+                    if peer_id != self.robot_id and self.goal_pos:
+                        dist_to_goal = self.current_pos.distance_to(self.goal_pos)
+                        my_priority = self.resolver.compute_composite_priority(dist_to_goal, 0.8, self.battery_pct)
+                        my_act, peer_act = self.resolver.negotiate_priority(peer_id, my_priority, peer_pri)
+                        self.get_logger().info(f"Deadlock negotiation with {peer_id}: My action = {my_act}")
+                        if my_act == "YIELD":
+                            # Trigger replanning / detour
+                            pt = Point()
+                            pt.x = self.current_pos.x
+                            pt.y = self.current_pos.y
+                            self.replan_pub.publish(pt)
+                elif cmd == "TOKEN_REQ":
+                    peer_id = parts[1]
+                    corridor_id = parts[2]
+                    if peer_id != self.robot_id:
+                        self.resolver.corridor_tokens[corridor_id] = peer_id
+                elif cmd == "TOKEN_REL":
+                    peer_id = parts[1]
+                    corridor_id = parts[2]
+                    if self.resolver.corridor_tokens.get(corridor_id) == peer_id:
+                        del self.resolver.corridor_tokens[corridor_id]
+            except Exception as e:
+                self.get_logger().debug(f"Conflict broadcast parse: {e}")
 
         def resolution_loop(self):
             if not self.goal_pos:
@@ -283,10 +320,11 @@ def main(args=None):
 
             if is_deadlock:
                 self.get_logger().warn(f"Deadlock detected for {self.robot_id}! Initiating priority negotiation.")
-                # Broadcast deadlock conflict
+                # Broadcast deadlock conflict to fleet
                 msg = String()
-                msg.data = f"DEADLOCK:{self.robot_id}:{my_priority}:{self.current_pos.x},{self.current_pos.y}"
+                msg.data = f"DEADLOCK:{self.robot_id}:{my_priority}:{self.current_pos.x:.2f},{self.current_pos.y:.2f}"
                 self.conflict_pub.publish(msg)
+                self.fleet_conflict_pub.publish(msg)
 
     node = ConflictResolverNode()
     try:

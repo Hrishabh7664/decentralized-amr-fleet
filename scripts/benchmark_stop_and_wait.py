@@ -91,18 +91,27 @@ def run_scenario(name: str, agents_config: List[Dict], max_steps: int = 4000, dt
                         collision_pairs.add(pair)
 
             # Stop-and-Wait Rule:
-            # 1. Single-lane shared corridor contention (X between -6.0 and 6.0)
-            in_corridor_approach = (-8.0 <= a1.position.x <= 8.0)
-            if in_corridor_approach:
+            # 1. Single-lane shared corridor zone reservation (X in [-8.0, 8.0], |Y| < 1.5)
+            in_corridor_track = (abs(a1.position.y) < 1.5)
+            if in_corridor_track:
                 for j, a2 in enumerate(agents):
                     if i == j or a2.completed:
                         continue
-                    # Peer is currently inside the single-lane corridor moving opposite
-                    if -7.0 <= a2.position.x <= 7.0:
-                        if (a1.priority < a2.priority) or (a1.priority == a2.priority and a1.id > a2.id):
-                            # Must wait outside corridor entrance until cleared
-                            must_wait = True
-                            break
+                    # Peer is also on the central corridor track
+                    if abs(a2.position.y) < 1.5:
+                        peer_in_corridor = (-8.0 <= a2.position.x <= 8.0)
+                        higher_priority = (a1.priority < a2.priority) or (a1.priority == a2.priority and a1.id > a2.id)
+                        
+                        # If peer is inside corridor or approaching with higher priority, hold outside
+                        if peer_in_corridor and higher_priority:
+                            # If a1 is still outside entrance or at boundary, wait outside
+                            if a1.position.x <= -7.5 or a1.position.x >= 7.5:
+                                must_wait = True
+                                break
+                            # If both caught inside, lower priority yields / stops
+                            elif higher_priority:
+                                must_wait = True
+                                break
 
             # 2. General proximity conflict zone (within 2.0m)
             if not must_wait:
@@ -112,6 +121,19 @@ def run_scenario(name: str, agents_config: List[Dict], max_steps: int = 4000, dt
                     dist = a1.position.distance_to(a2.position)
                     if dist < 2.0:
                         if (a1.priority < a2.priority) or (a1.priority == a2.priority and a1.id > a2.id):
+                            must_wait = True
+                            break
+
+            # 3. Industrial Safety Field / Bumper: Halt if peer is directly in path within 0.6m
+            if not must_wait and a1.path:
+                move_dir = (a1.path[0] - a1.position).normalized()
+                for j, a2 in enumerate(agents):
+                    if i == j or a2.completed:
+                        continue
+                    dist = a1.position.distance_to(a2.position)
+                    if dist < 0.60:
+                        to_peer = a2.position - a1.position
+                        if to_peer.norm() > 1e-4 and move_dir.dot(to_peer.normalized()) > 0.5:
                             must_wait = True
                             break
 

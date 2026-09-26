@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Battery Monitor and Autonomous Recharging Node.
 Models energy consumption based on kinetic motion and idle draw.
@@ -127,23 +128,61 @@ def main(args=None):
             self.monitor = BatteryMonitor(self.robot_id, initial_percentage=initial_bat)
             self.current_pos = Vector2D(0.0, 0.0)
             self.current_vel = 0.0
+            self.last_pose_time = None
 
             # Publishers & Subscribers
             self.battery_pub = self.create_publisher(Float32, f'/fleet/{self.robot_id}/battery', 10)
             self.intent_pub = self.create_publisher(String, f'/fleet/{self.robot_id}/charging_intent', 10)
             self.goal_pub = self.create_publisher(Point, f'/fleet/{self.robot_id}/goal', 10)
+            self.station_pub = self.create_publisher(String, '/fleet/charging_stations', 10)
 
             self.create_subscription(PoseStamped, f'/{self.robot_id}/pose', self.pose_callback, 10)
+            self.create_subscription(String, '/fleet/charging_stations', self.station_callback, 10)
+
             self.timer = self.create_timer(0.5, self.monitor_tick)  # 2 Hz
             self.get_logger().info(f"BatteryMonitor started for {self.robot_id} ({initial_bat}%)")
 
         def pose_callback(self, msg: PoseStamped):
             new_pos = Vector2D(msg.pose.position.x, msg.pose.position.y)
-            self.current_vel = (new_pos - self.current_pos).norm() / 0.1
+            now = time.time()
+            if self.last_pose_time is None:
+                self.last_pose_time = now
+                self.current_pos = new_pos
+                self.current_vel = 0.0
+                return
+            dt = max(0.01, now - self.last_pose_time)
+            self.last_pose_time = now
+            measured_vel = (new_pos - self.current_pos).norm() / dt
+            self.current_vel = min(1.5, measured_vel)
             self.current_pos = new_pos
 
+        def station_callback(self, msg: String):
+            try:
+                # Format: "CLAIM:{robot_id}:{station_id}" or "RELEASE:{robot_id}:{station_id}"
+                parts = msg.data.split(':')
+                action, r_id, s_id = parts[0], parts[1], parts[2]
+                if r_id != self.robot_id:
+                    for st in self.monitor.charging_stations:
+                        if st.station_id == s_id:
+                            if action == "CLAIM":
+                                st.is_occupied = True
+                                st.occupied_by = r_id
+                            elif action == "RELEASE" and st.occupied_by == r_id:
+                                st.is_occupied = False
+                                st.occupied_by = None
+            except Exception as e:
+                self.get_logger().debug(f"Failed to parse charging station update: {e}")
+
         def monitor_tick(self):
+            was_charging = self.monitor.is_charging
             pct = self.monitor.update_state(self.current_pos, self.current_vel, dt=0.5)
+
+            # If robot just finished charging, broadcast release
+            if was_charging and not self.monitor.is_charging and self.monitor.assigned_station:
+                rel_msg = String()
+                rel_msg.data = f"RELEASE:{self.robot_id}:{self.monitor.assigned_station.station_id}"
+                self.station_pub.publish(rel_msg)
+
             msg = Float32()
             msg.data = float(pct)
             self.battery_pub.publish(msg)
@@ -154,6 +193,11 @@ def main(args=None):
                     self.get_logger().warn(
                         f"CRITICAL BATTERY {pct:.1f}%! Routing {self.robot_id} to {station.station_id}"
                     )
+                    # Broadcast claim to fleet
+                    claim_msg = String()
+                    claim_msg.data = f"CLAIM:{self.robot_id}:{station.station_id}"
+                    self.station_pub.publish(claim_msg)
+
                     intent_msg = String()
                     intent_msg.data = f"CHARGING_INTENT:{self.robot_id}:{station.station_id}"
                     self.intent_pub.publish(intent_msg)
