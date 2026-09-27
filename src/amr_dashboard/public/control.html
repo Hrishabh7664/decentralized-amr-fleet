@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0b1120" />
+  <title>AMR Fleet Mission & Physics Control Panel</title>
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: #0b1120;
+      color: #f8fafc;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      padding: 32px 24px;
+    }
+    .card {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 14px;
+      padding: 24px;
+      box-shadow: 0 10px 25px -5px rgba(0,0,0,0.3);
+    }
+    .btn {
+      cursor: pointer;
+      font-weight: 600;
+      border-radius: 8px;
+      border: none;
+      padding: 10px 18px;
+      font-size: 14px;
+      transition: all 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .btn:hover { filter: brightness(1.15); transform: translateY(-1px); }
+    .btn:active { transform: translateY(1px); }
+    .btn-primary { background: linear-gradient(135deg, #0284c7, #2563eb); color: #fff; }
+    .btn-danger { background: linear-gradient(135deg, #e11d48, #b91c1c); color: #fff; }
+    .btn-warning { background: linear-gradient(135deg, #d97706, #b45309); color: #fff; }
+    .btn-success { background: linear-gradient(135deg, #059669, #047857); color: #fff; }
+    .btn-preset { background: #334155; color: #cbd5e1; padding: 6px 12px; font-size: 12px; }
+    .btn-preset:hover { background: #475569; color: #fff; }
+    input[type=range] {
+      width: 100%;
+      height: 8px;
+      border-radius: 4px;
+      background: #334155;
+      outline: none;
+      -webkit-appearance: none;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: #38bdf8;
+      cursor: pointer;
+      box-shadow: 0 0 10px #38bdf8aa;
+    }
+    select, input[type=text] {
+      background: #0f172a;
+      border: 1px solid #475569;
+      color: #f8fafc;
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 14px;
+      outline: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    function ControlApp() {
+      const [connected, setConnected] = useState(false);
+      const [speedScale, setSpeedScale] = useState(1.0);
+      const [activeRobots, setActiveRobots] = useState(['robot_1', 'robot_2', 'robot_3']);
+      const [selectedRobotToRemove, setSelectedRobotToRemove] = useState('robot_3');
+      const [newRobotName, setNewRobotName] = useState('robot_4');
+      const [isPaused, setIsPaused] = useState(false);
+      const [statusLog, setStatusLog] = useState(['Initialized Control Center. Connecting to rosbridge ws://localhost:9090...']);
+      const wsRef = useRef(null);
+
+      const addLog = (msg) => {
+        const time = new Date().toLocaleTimeString();
+        setStatusLog(prev => [`[${time}] ${msg}`, ...prev].slice(0, 30));
+      };
+
+      useEffect(() => {
+        let ws;
+        const connect = () => {
+          ws = new WebSocket('ws://localhost:9090');
+          wsRef.current = ws;
+
+          ws.onopen = () => {
+            setConnected(true);
+            addLog('Connected to rosbridge WebSocket.');
+
+            // Advertise control topics
+            ws.send(JSON.stringify({ op: 'advertise', topic: '/fleet/speed_scale', type: 'std_msgs/Float32' }));
+            ws.send(JSON.stringify({ op: 'advertise', topic: '/fleet/add_robot', type: 'std_msgs/String' }));
+            ws.send(JSON.stringify({ op: 'advertise', topic: '/fleet/remove_robot', type: 'std_msgs/String' }));
+
+            // Subscribe to active robots updates
+            ws.send(JSON.stringify({ op: 'subscribe', topic: '/fleet/active_robots', type: 'std_msgs/String' }));
+          };
+
+          ws.onmessage = (event) => {
+            try {
+              const data = JSON.parse(event.data);
+              if (data.topic === '/fleet/active_robots') {
+                const payload = JSON.parse(data.msg.data);
+                if (payload.active_robots) {
+                  setActiveRobots(payload.active_robots);
+                  if (!payload.active_robots.includes(selectedRobotToRemove) && payload.active_robots.length > 0) {
+                    setSelectedRobotToRemove(payload.active_robots[payload.active_robots.length - 1]);
+                  }
+                }
+              }
+            } catch (e) {}
+          };
+
+          ws.onclose = () => {
+            setConnected(false);
+            addLog('Disconnected from rosbridge. Reconnecting in 2s...');
+            setTimeout(connect, 2000);
+          };
+
+          ws.onerror = () => {
+            setConnected(false);
+          };
+        };
+
+        connect();
+        return () => { if (ws) ws.close(); };
+      }, []);
+
+      const publishSpeed = (val) => {
+        const speed = Math.round(parseFloat(val) * 10) / 10;
+        setSpeedScale(speed);
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({
+            op: 'publish',
+            topic: '/fleet/speed_scale',
+            msg: { data: speed }
+          }));
+          addLog(`Published /fleet/speed_scale: ${speed.toFixed(1)}x`);
+        }
+      };
+
+      const handleAddRobot = () => {
+        const name = newRobotName.trim() || `robot_${activeRobots.length + 1}`;
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({
+            op: 'publish',
+            topic: '/fleet/add_robot',
+            msg: { data: name }
+          }));
+          addLog(`Dispatched /fleet/add_robot request for [${name}]`);
+          const nextNum = parseInt(name.replace('robot_', '')) + 1 || (activeRobots.length + 2);
+          setNewRobotName(`robot_${nextNum}`);
+        }
+      };
+
+      const handleRemoveRobot = () => {
+        if (!selectedRobotToRemove) return;
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({
+            op: 'publish',
+            topic: '/fleet/remove_robot',
+            msg: { data: selectedRobotToRemove }
+          }));
+          addLog(`Dispatched /fleet/remove_robot request for [${selectedRobotToRemove}]`);
+        }
+      };
+
+      const togglePhysics = () => {
+        const nextState = !isPaused;
+        setIsPaused(nextState);
+        const serviceName = nextState ? '/pause_physics' : '/unpause_physics';
+        const gazeboServiceName = nextState ? '/gazebo/pause_physics' : '/gazebo/unpause_physics';
+
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({
+            op: 'call_service',
+            service: serviceName,
+            args: {}
+          }));
+          wsRef.current.send(JSON.stringify({
+            op: 'call_service',
+            service: gazeboServiceName,
+            args: {}
+          }));
+          addLog(`Dispatched service call: ${gazeboServiceName}`);
+        }
+      };
+
+      return (
+        <div style={{ maxWidth: '1100px', margin: '0 auto' }}>
+          <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '28px', paddingBottom: '16px', borderBottom: '1px solid #1e293b' }}>
+            <div>
+              <h1 style={{ fontSize: '26px', fontWeight: 700, letterSpacing: '-0.5px' }}>
+                <span style={{ background: 'linear-gradient(135deg, #38bdf8, #818cf8)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                  Live AMR Fleet Mission & Physics Control Panel
+                </span>
+              </h1>
+              <p style={{ color: '#94a3b8', fontSize: '13px', marginTop: '4px' }}>
+                Real-time Gazebo Physics & Robot Multi-Agent Interaction Console
+              </p>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+              <a href="/" style={{ color: '#38bdf8', textDecoration: 'none', fontSize: '13px', fontWeight: 600 }}>← Return to Map Dashboard</a>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#1e293b', border: '1px solid #334155', padding: '6px 14px', borderRadius: '20px', fontSize: '13px' }}>
+                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: connected ? '#10b981' : '#ef4444' }} />
+                <span>{connected ? 'rosbridge: Connected (9090)' : 'Disconnected'}</span>
+              </div>
+            </div>
+          </header>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '24px', marginBottom: '24px' }}>
+            {/* 1. Speed Slider */}
+            <div className="card">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                <h3 style={{ fontSize: '16px', color: '#e2e8f0' }}>⚡ Velocity Multiplier</h3>
+                <span style={{ fontSize: '18px', fontWeight: 700, color: '#38bdf8', fontFamily: 'JetBrains Mono, monospace' }}>
+                  {speedScale.toFixed(1)}x
+                </span>
+              </div>
+              <p style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '14px' }}>
+                Publishes to <code>/fleet/speed_scale</code>. Scales ORCA linear & angular velocities dynamically across all robots.
+              </p>
+              <input
+                id="speed_slider"
+                type="range"
+                min="0.1"
+                max="3.0"
+                step="0.1"
+                value={speedScale}
+                onChange={(e) => publishSpeed(e.target.value)}
+              />
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '8px', fontSize: '11px', color: '#64748b' }}>
+                <span>0.1x (Slow)</span>
+                <span>1.0x (Nominal)</span>
+                <span>3.0x (Turbo)</span>
+              </div>
+              <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
+                {[0.25, 0.5, 1.0, 1.5, 2.0, 3.0].map(v => (
+                  <button key={v} className="btn btn-preset" onClick={() => publishSpeed(v)}>{v}x</button>
+                ))}
+              </div>
+            </div>
+
+            {/* 2. Physics Controls */}
+            <div className="card">
+              <h3 style={{ fontSize: '16px', color: '#e2e8f0', marginBottom: '8px' }}>⏱️ Gazebo Physics Engine</h3>
+              <p style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '20px' }}>
+                Calls <code>/gazebo/pause_physics</code> and <code>/gazebo/unpause_physics</code> services.
+              </p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                <button
+                  id="pause_resume_btn"
+                  className={`btn ${isPaused ? 'btn-success' : 'btn-warning'}`}
+                  style={{ flex: 1, padding: '14px' }}
+                  onClick={togglePhysics}
+                >
+                  {isPaused ? '▶️ Resume Simulation Physics' : '⏸️ Pause Simulation Physics'}
+                </button>
+              </div>
+              <div style={{ marginTop: '16px', padding: '10px 14px', borderRadius: '8px', background: isPaused ? '#ef444422' : '#10b98122', border: `1px solid ${isPaused ? '#ef4444' : '#10b981'}44`, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: isPaused ? '#ef4444' : '#10b981' }} />
+                <span style={{ fontSize: '13px', fontWeight: 600, color: isPaused ? '#fca5a5' : '#86efac' }}>
+                  {isPaused ? 'Simulation PAUSED (Physics Clock Halted)' : 'Simulation RUNNING (Physics Clock Active)'}
+                </span>
+              </div>
+            </div>
+
+            {/* 3. Add Robot */}
+            <div className="card">
+              <h3 style={{ fontSize: '16px', color: '#e2e8f0', marginBottom: '8px' }}>➕ Dynamic Robot Spawning</h3>
+              <p style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '16px' }}>
+                Spawns URDF entity via <code>/spawn_entity</code> and initializes full decentralized onboard node stack.
+              </p>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <input
+                  id="add_robot_input"
+                  type="text"
+                  placeholder="robot_4"
+                  value={newRobotName}
+                  onChange={(e) => setNewRobotName(e.target.value)}
+                  style={{ flex: 1 }}
+                />
+                <button id="add_robot_btn" className="btn btn-primary" onClick={handleAddRobot}>
+                  Spawn Robot
+                </button>
+              </div>
+              <div style={{ marginTop: '14px', fontSize: '12px', color: '#64748b' }}>
+                Active Fleet Count: <strong style={{ color: '#38bdf8' }}>{activeRobots.length} robots</strong>
+              </div>
+            </div>
+
+            {/* 4. Remove Robot */}
+            <div className="card">
+              <h3 style={{ fontSize: '16px', color: '#e2e8f0', marginBottom: '8px' }}>🗑️ Robot Deletion</h3>
+              <p style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '16px' }}>
+                Unregisters from fleet and deletes entity from Gazebo via <code>/delete_entity</code>.
+              </p>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <select
+                  id="remove_robot_select"
+                  value={selectedRobotToRemove}
+                  onChange={(e) => setSelectedRobotToRemove(e.target.value)}
+                  style={{ flex: 1 }}
+                >
+                  {activeRobots.map(r => (
+                    <option key={r} value={r}>{r}</option>
+                  ))}
+                </select>
+                <button id="remove_robot_btn" className="btn btn-danger" onClick={handleRemoveRobot}>
+                  Remove Robot
+                </button>
+              </div>
+              <div style={{ marginTop: '14px', fontSize: '12px', color: '#64748b' }}>
+                Target Entity: <strong style={{ color: '#f87171' }}>{selectedRobotToRemove || 'None'}</strong>
+              </div>
+            </div>
+          </div>
+
+          {/* Activity Log */}
+          <div className="card">
+            <h3 style={{ fontSize: '15px', color: '#e2e8f0', marginBottom: '12px', display: 'flex', justifyContent: 'space-between' }}>
+              <span>Live Control Action Stream</span>
+              <span style={{ fontSize: '12px', color: '#94a3b8' }}>ws://localhost:9090</span>
+            </h3>
+            <div style={{ background: '#0f172a', borderRadius: '8px', padding: '14px', height: '160px', overflowY: 'auto', fontFamily: 'JetBrains Mono, monospace', fontSize: '12px', color: '#94a3b8', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {statusLog.map((log, i) => (
+                <div key={i} style={{ color: log.includes('Published') || log.includes('Connected') ? '#38bdf8' : log.includes('Dispatched') ? '#a855f7' : '#94a3b8' }}>
+                  {log}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<ControlApp />);
+  </script>
+</body>
+</html>

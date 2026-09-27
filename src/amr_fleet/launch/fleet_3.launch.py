@@ -10,6 +10,7 @@ from launch import LaunchDescription
 from launch.actions import IncludeLaunchDescription, DeclareLaunchArgument, ExecuteProcess
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
+from launch_ros.actions import Node
 
 
 def generate_launch_description():
@@ -83,6 +84,13 @@ def generate_launch_description():
         launch_arguments={'robot_id': 'robot_3', 'initial_battery': '75.0'}.items()
     )
 
+    fleet_controller_node = Node(
+        package='amr_fleet',
+        executable='fleet_controller.py',
+        name='fleet_controller',
+        output='screen'
+    )
+
     return LaunchDescription([
         gui_arg,
         gazebo_cmd,
@@ -91,5 +99,6 @@ def generate_launch_description():
         spawn_r2,
         stack_r2,
         spawn_r3,
-        stack_r3
+        stack_r3,
+        fleet_controller_node
     ])

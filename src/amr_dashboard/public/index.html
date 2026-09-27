@@ -54,6 +54,43 @@
     ::-webkit-scrollbar-thumb:hover {
       background: #475569;
     }
+    .btn-ctrl {
+      cursor: pointer;
+      font-weight: 600;
+      border-radius: 8px;
+      border: none;
+      padding: 8px 14px;
+      font-size: 13px;
+      transition: all 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .btn-ctrl:hover { filter: brightness(1.15); transform: translateY(-1px); }
+    .btn-ctrl:active { transform: translateY(1px); }
+    .btn-ctrl-primary { background: linear-gradient(135deg, #0284c7, #2563eb); color: #fff; }
+    .btn-ctrl-danger { background: linear-gradient(135deg, #e11d48, #b91c1c); color: #fff; }
+    .btn-ctrl-warning { background: linear-gradient(135deg, #d97706, #b45309); color: #fff; }
+    .btn-ctrl-success { background: linear-gradient(135deg, #059669, #047857); color: #fff; }
+    .btn-ctrl-preset { background: #334155; color: #cbd5e1; padding: 4px 8px; font-size: 11px; }
+    .btn-ctrl-preset:hover { background: #475569; color: #fff; }
+    input[type=range].speed-slider {
+      width: 100%;
+      height: 6px;
+      border-radius: 3px;
+      background: #334155;
+      outline: none;
+      -webkit-appearance: none;
+    }
+    input[type=range].speed-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #38bdf8;
+      cursor: pointer;
+      box-shadow: 0 0 8px #38bdf8aa;
+    }
   </style>
 
   <!-- React 18, Leaflet, and Babel Standalone for Instant Local Preview -->
@@ -394,11 +431,117 @@
       );
     }
 
+    function ControlPanel({ speedScale, onSpeedChange, activeRobots, selectedRobot, onSelectRobot, onRemoveRobot, newRobotName, onNewRobotNameChange, onAddRobot, isPaused, onTogglePause, statusMsg }) {
+      return (
+        <div style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '16px 20px', marginBottom: '20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', borderBottom: '1px solid #33415555', paddingBottom: '10px' }}>
+            <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 600, color: '#e2e8f0', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: '#38bdf8' }} />
+              Live Simulation & Fleet Control Console
+            </h3>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <span style={{ fontSize: '12px', color: '#94a3b8' }}>{statusMsg}</span>
+              <a href="/control.html" style={{ fontSize: '12px', color: '#38bdf8', textDecoration: 'none', fontWeight: 600 }}>Open Fullscreen Control Page ↗</a>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: '16px', alignItems: 'center' }}>
+            {/* Speed Slider */}
+            <div style={{ background: '#0f172a', padding: '12px 14px', borderRadius: '8px', border: '1px solid #334155' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <span style={{ fontSize: '12px', color: '#94a3b8', fontWeight: 600 }}>SPEED SCALE (/fleet/speed_scale)</span>
+                <span style={{ fontSize: '14px', fontWeight: 700, color: '#38bdf8', fontFamily: 'monospace' }}>{speedScale.toFixed(1)}x</span>
+              </div>
+              <input
+                id="speed_slider"
+                className="speed-slider"
+                type="range"
+                min="0.1"
+                max="3.0"
+                step="0.1"
+                value={speedScale}
+                onChange={(e) => onSpeedChange(parseFloat(e.target.value))}
+              />
+              <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
+                {[0.5, 1.0, 1.5, 2.0, 3.0].map(s => (
+                  <button key={s} className="btn-ctrl btn-ctrl-preset" onClick={() => onSpeedChange(s)}>{s}x</button>
+                ))}
+              </div>
+            </div>
+
+            {/* Add Robot */}
+            <div style={{ background: '#0f172a', padding: '12px 14px', borderRadius: '8px', border: '1px solid #334155' }}>
+              <span style={{ fontSize: '12px', color: '#94a3b8', fontWeight: 600, display: 'block', marginBottom: '8px' }}>DYNAMIC SPAWN (/fleet/add_robot)</span>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <input
+                  id="add_robot_input"
+                  type="text"
+                  value={newRobotName}
+                  onChange={(e) => onNewRobotNameChange(e.target.value)}
+                  placeholder="robot_4"
+                  style={{ flex: 1, background: '#1e293b', border: '1px solid #475569', color: '#fff', borderRadius: '6px', padding: '6px 10px', fontSize: '12px', outline: 'none' }}
+                />
+                <button id="add_robot_btn" className="btn-ctrl btn-ctrl-primary" onClick={onAddRobot}>
+                  ➕ Add Robot
+                </button>
+              </div>
+              <span style={{ fontSize: '11px', color: '#64748b', marginTop: '6px', display: 'block' }}>Active: {activeRobots.join(', ')}</span>
+            </div>
+
+            {/* Remove Robot */}
+            <div style={{ background: '#0f172a', padding: '12px 14px', borderRadius: '8px', border: '1px solid #334155' }}>
+              <span style={{ fontSize: '12px', color: '#94a3b8', fontWeight: 600, display: 'block', marginBottom: '8px' }}>DELETION (/fleet/remove_robot)</span>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <select
+                  id="remove_robot_select"
+                  value={selectedRobot}
+                  onChange={(e) => onSelectRobot(e.target.value)}
+                  style={{ flex: 1, background: '#1e293b', border: '1px solid #475569', color: '#fff', borderRadius: '6px', padding: '6px 10px', fontSize: '12px', outline: 'none' }}
+                >
+                  {activeRobots.map(r => (
+                    <option key={r} value={r}>{r}</option>
+                  ))}
+                </select>
+                <button id="remove_robot_btn" className="btn-ctrl btn-ctrl-danger" onClick={onRemoveRobot}>
+                  🗑️ Remove
+                </button>
+              </div>
+              <span style={{ fontSize: '11px', color: '#64748b', marginTop: '6px', display: 'block' }}>Target: {selectedRobot || 'None'}</span>
+            </div>
+
+            {/* Pause / Resume */}
+            <div style={{ background: '#0f172a', padding: '12px 14px', borderRadius: '8px', border: '1px solid #334155' }}>
+              <span style={{ fontSize: '12px', color: '#94a3b8', fontWeight: 600, display: 'block', marginBottom: '8px' }}>PHYSICS (/gazebo/pause_physics)</span>
+              <button
+                id="pause_resume_btn"
+                className={`btn-ctrl ${isPaused ? 'btn-ctrl-success' : 'btn-ctrl-warning'}`}
+                style={{ width: '100%', justifyContent: 'center', padding: '8px 12px' }}
+                onClick={onTogglePause}
+              >
+                {isPaused ? '▶️ Resume Physics' : '⏸️ Pause Physics'}
+              </button>
+              <span style={{ fontSize: '11px', color: isPaused ? '#ef4444' : '#10b981', marginTop: '6px', display: 'block', fontWeight: 600 }}>
+                {isPaused ? '● SIMULATION PAUSED' : '● SIMULATION RUNNING'}
+              </span>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     function App() {
       const [connected, setConnected] = useState(false);
       const [robots, setRobots] = useState({});
       const [intents, setIntents] = useState({});
       const [conflicts, setConflicts] = useState([]);
+      const [speedScale, setSpeedScale] = useState(1.0);
+      const [activeRobots, setActiveRobots] = useState(['robot_1', 'robot_2', 'robot_3']);
+      const [selectedRobotToRemove, setSelectedRobotToRemove] = useState('robot_3');
+      const [newRobotName, setNewRobotName] = useState('robot_4');
+      const [isPaused, setIsPaused] = useState(false);
+      const [statusMsg, setStatusMsg] = useState('Ready');
+      const wsRef = useRef(null);
+
       const [metrics, setMetrics] = useState({
         tasksCompleted: 38,
         avgTaskTime: 17.6,
@@ -412,14 +555,48 @@
         let ws = null;
         try {
           ws = new WebSocket('ws://localhost:9090');
-          ws.onopen = () => { isWsOpen = true; setConnected(true); };
+          wsRef.current = ws;
+
+          ws.onopen = () => {
+            isWsOpen = true;
+            setConnected(true);
+            setStatusMsg('rosbridge connected');
+
+            // Advertise control topics
+            ws.send(JSON.stringify({ op: 'advertise', topic: '/fleet/speed_scale', type: 'std_msgs/Float32' }));
+            ws.send(JSON.stringify({ op: 'advertise', topic: '/fleet/add_robot', type: 'std_msgs/String' }));
+            ws.send(JSON.stringify({ op: 'advertise', topic: '/fleet/remove_robot', type: 'std_msgs/String' }));
+
+            // Subscribe to active robots
+            ws.send(JSON.stringify({ op: 'subscribe', topic: '/fleet/active_robots', type: 'std_msgs/String' }));
+
+            // Subscribe to robot topics
+            for (let i = 1; i <= 10; i++) {
+              ws.send(JSON.stringify({ op: 'subscribe', topic: `/fleet/robot_${i}/state`, type: 'amr_fleet/RobotState' }));
+              ws.send(JSON.stringify({ op: 'subscribe', topic: `/fleet/robot_${i}/intent`, type: 'amr_fleet/RobotIntent' }));
+              ws.send(JSON.stringify({ op: 'subscribe', topic: `/fleet/robot_${i}/conflict`, type: 'amr_fleet/Conflict' }));
+            }
+          };
+
           ws.onmessage = (event) => {
             try {
               const data = JSON.parse(event.data);
               const topic = data.topic || '';
-              if (topic.includes('/state')) setRobots(prev => ({ ...prev, [data.msg.robot_id]: data.msg }));
-              else if (topic.includes('/intent')) setIntents(prev => ({ ...prev, [data.msg.robot_id]: data.msg }));
-              else if (topic.includes('/conflict')) setConflicts(prev => [data.msg, ...prev].slice(0, 50));
+              if (topic === '/fleet/active_robots') {
+                const payload = JSON.parse(data.msg.data);
+                if (payload.active_robots) {
+                  setActiveRobots(payload.active_robots);
+                  if (!payload.active_robots.includes(selectedRobotToRemove) && payload.active_robots.length > 0) {
+                    setSelectedRobotToRemove(payload.active_robots[payload.active_robots.length - 1]);
+                  }
+                }
+              } else if (topic.includes('/state')) {
+                setRobots(prev => ({ ...prev, [data.msg.robot_id]: data.msg }));
+              } else if (topic.includes('/intent')) {
+                setIntents(prev => ({ ...prev, [data.msg.robot_id]: data.msg }));
+              } else if (topic.includes('/conflict')) {
+                setConflicts(prev => [data.msg, ...prev].slice(0, 50));
+              }
             } catch (err) {}
           };
           ws.onerror = () => { isWsOpen = false; setConnected(false); };
@@ -498,6 +675,57 @@
         };
       }, []);
 
+      const handleSpeedChange = (val) => {
+        const speed = Math.round(parseFloat(val) * 10) / 10;
+        setSpeedScale(speed);
+        setStatusMsg(`Speed scale set to ${speed.toFixed(1)}x`);
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({
+            op: 'publish',
+            topic: '/fleet/speed_scale',
+            msg: { data: speed }
+          }));
+        }
+      };
+
+      const handleAddRobot = () => {
+        const name = newRobotName.trim() || `robot_${activeRobots.length + 1}`;
+        setStatusMsg(`Spawning ${name}...`);
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({
+            op: 'publish',
+            topic: '/fleet/add_robot',
+            msg: { data: name }
+          }));
+          const num = parseInt(name.replace('robot_', '')) || activeRobots.length;
+          setNewRobotName(`robot_${num + 1}`);
+        }
+      };
+
+      const handleRemoveRobot = () => {
+        if (!selectedRobotToRemove) return;
+        setStatusMsg(`Removing ${selectedRobotToRemove}...`);
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({
+            op: 'publish',
+            topic: '/fleet/remove_robot',
+            msg: { data: selectedRobotToRemove }
+          }));
+        }
+      };
+
+      const handleTogglePause = () => {
+        const nextState = !isPaused;
+        setIsPaused(nextState);
+        setStatusMsg(nextState ? 'Physics paused' : 'Physics resumed');
+        const srv = nextState ? '/pause_physics' : '/unpause_physics';
+        const gzSrv = nextState ? '/gazebo/pause_physics' : '/gazebo/unpause_physics';
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({ op: 'call_service', service: srv, args: {} }));
+          wsRef.current.send(JSON.stringify({ op: 'call_service', service: gzSrv, args: {} }));
+        }
+      };
+
       return (
         <div style={{ minHeight: '100vh', background: '#0b1120', color: '#f8fafc', padding: '24px' }}>
           <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', paddingBottom: '16px', borderBottom: '1px solid #1e293b' }}>
@@ -512,15 +740,33 @@
               </p>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <a href="/control.html" style={{ fontSize: '12px', background: '#0284c722', color: '#38bdf8', padding: '6px 12px', borderRadius: '6px', fontWeight: 600, border: '1px solid #0284c755', textDecoration: 'none' }}>
+                🎮 Full Control Page
+              </a>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#1e293b', border: '1px solid #334155', padding: '6px 12px', borderRadius: '20px', fontSize: '12px' }}>
                 <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: connected ? '#10b981' : '#f59e0b' }} />
                 <span style={{ color: '#cbd5e1' }}>{connected ? 'rosbridge: Connected (ws://9090)' : 'DDS Simulation Feed (Active)'}</span>
               </div>
-              <span style={{ fontSize: '11px', background: '#38bdf822', color: '#38bdf8', padding: '6px 10px', borderRadius: '6px', fontWeight: 600, border: '1px solid #38bdf844' }}>
-                MONITORING ONLY (READ-ONLY)
+              <span style={{ fontSize: '11px', background: '#10b98122', color: '#10b981', padding: '6px 10px', borderRadius: '6px', fontWeight: 600, border: '1px solid #10b98144' }}>
+                INTERACTIVE CONTROL ACTIVE
               </span>
             </div>
           </header>
+
+          <ControlPanel
+            speedScale={speedScale}
+            onSpeedChange={handleSpeedChange}
+            activeRobots={activeRobots}
+            selectedRobot={selectedRobotToRemove}
+            onSelectRobot={setSelectedRobotToRemove}
+            onRemoveRobot={handleRemoveRobot}
+            newRobotName={newRobotName}
+            onNewRobotNameChange={setNewRobotName}
+            onAddRobot={handleAddRobot}
+            isPaused={isPaused}
+            onTogglePause={handleTogglePause}
+            statusMsg={statusMsg}
+          />
 
           <div style={{ marginBottom: '20px' }}>
             <MetricsPanel metrics={metrics} />

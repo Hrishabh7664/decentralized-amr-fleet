@@ -31,6 +31,7 @@ setup(
             'conflict_resolver = amr_fleet.conflict_resolver:main',
             'task_allocator = amr_fleet.task_allocator:main',
             'battery_monitor = amr_fleet.battery_monitor:main',
+            'fleet_controller = amr_fleet.fleet_controller:main',
         ],
     },
 )

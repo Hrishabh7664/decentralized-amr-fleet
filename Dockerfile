@@ -44,7 +44,6 @@ RUN mkdir -p ${WORKSPACE}/src
 # Copy project source into container
 COPY src/ ${WORKSPACE}/src/
 COPY scripts/ ${WORKSPACE}/scripts/
-COPY config/ ${WORKSPACE}/config/ 2>/dev/null || true
 
 # Initialize rosdep and install package dependencies
 RUN source /opt/ros/${ROS_DISTRO}/setup.bash \

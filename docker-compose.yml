@@ -7,7 +7,10 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: amr_fleet_simulation
-    network_mode: "host"
+    ports:
+      - "3000:3000"
+      - "9090:9090"
+      - "11345:11345"
     environment:
       - ROS_DOMAIN_ID=42
       - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
@@ -30,7 +33,7 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: amr_rosbridge
-    network_mode: "host"
+    network_mode: "service:simulation"
     environment:
       - ROS_DOMAIN_ID=42
       - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
@@ -49,9 +52,7 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: amr_dashboard
-    network_mode: "host"
-    ports:
-      - "3000:3000"
+    network_mode: "service:simulation"
     command: >
       /bin/bash -c "
         python3 -m http.server 3000 --directory /root/ros2_ws/src/amr_dashboard/public

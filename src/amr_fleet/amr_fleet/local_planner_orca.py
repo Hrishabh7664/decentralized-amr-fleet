@@ -314,6 +314,7 @@ def main(args=None):
         import rclpy
         from rclpy.node import Node
         from geometry_msgs.msg import Twist, PoseStamped
+        from std_msgs.msg import Float32
         from nav_msgs.msg import Path
         from sensor_msgs.msg import LaserScan
     except ImportError:
@@ -340,8 +341,10 @@ def main(args=None):
             self.neighbor_states: Dict[str, AgentState] = {}
             self.peer_last_times: Dict[str, float] = {}
             self.static_obstacles: List[Vector2D] = []
+            self.speed_scale = 1.0
 
             # Subscriptions
+            self.create_subscription(Float32, '/fleet/speed_scale', self.speed_scale_callback, 10)
             self.create_subscription(PoseStamped, f'/{self.robot_id}/pose', self.pose_callback, 10)
             self.create_subscription(Path, f'/fleet/{self.robot_id}/plan', self.plan_callback, 10)
             self.create_subscription(LaserScan, f'/{self.robot_id}/scan', self.scan_callback, 10)
@@ -396,6 +399,9 @@ def main(args=None):
                     self.static_obstacles.append(Vector2D(ox, oy))
                 angle += msg.angle_increment * 6
 
+        def speed_scale_callback(self, msg: Float32):
+            self.speed_scale = max(0.1, min(3.0, float(msg.data)))
+
         def control_loop(self):
             if not self.path_waypoints:
                 self.publish_stop()
@@ -436,10 +442,10 @@ def main(args=None):
             if abs(heading_err) > 0.8:
                 # Turn in place first if large heading error
                 twist.linear.x = 0.0
-                twist.angular.z = max(-1.0, min(1.0, 1.5 * heading_err))
+                twist.angular.z = max(-1.0, min(1.0, 1.5 * heading_err)) * self.speed_scale
             else:
-                twist.linear.x = optimal_vel.norm() * math.cos(heading_err)
-                twist.angular.z = max(-1.0, min(1.0, 2.0 * heading_err))
+                twist.linear.x = optimal_vel.norm() * math.cos(heading_err) * self.speed_scale
+                twist.angular.z = max(-1.0, min(1.0, 2.0 * heading_err)) * self.speed_scale
 
             self.cmd_pub.publish(twist)
 

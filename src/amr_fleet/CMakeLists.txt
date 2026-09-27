@@ -24,7 +24,12 @@ rosidl_generate_interfaces(${PROJECT_NAME}
 )
 
 # Install Python modules
-ament_python_install_package(${PROJECT_NAME})
+ament_get_python_install_dir(PYTHON_INSTALL_DIR)
+install(DIRECTORY amr_fleet/
+  DESTINATION "${PYTHON_INSTALL_DIR}/${PROJECT_NAME}"
+  PATTERN "__pycache__" EXCLUDE
+  PATTERN "*.pyc" EXCLUDE
+)
 
 # Install launch files, configs, and world files
 install(DIRECTORY
@@ -43,6 +48,7 @@ install(PROGRAMS
   amr_fleet/conflict_resolver.py
   amr_fleet/task_allocator.py
   amr_fleet/battery_monitor.py
+  amr_fleet/fleet_controller.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
