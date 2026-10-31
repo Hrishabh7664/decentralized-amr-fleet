@@ -49,6 +49,8 @@ class StatePublisherNode:
         self.node.create_subscription(Float32, f'/fleet/{self.robot_id}/battery', self.battery_callback, 10)
         self.node.create_subscription(Float32, f'/{self.robot_id}/battery', self.battery_callback, 10)
         self.node.create_subscription(String, f'/fleet/{self.robot_id}/status', self.status_callback, 10)
+        self.node.create_subscription(String, f'/fleet/{self.robot_id}/charging_intent', self.charging_intent_callback, 10)
+        self.node.create_subscription(String, f'/{self.robot_id}/charging_intent', self.charging_intent_callback, 10)
 
         self.timer = self.node.create_timer(1.0 / self.rate_hz, self.publish_state)
         self.node.get_logger().info(f"StatePublisher active on /fleet/{self.robot_id}/state at {self.rate_hz} Hz")
@@ -71,7 +73,7 @@ class StatePublisherNode:
         self.pose_pub.publish(ps)
 
         if abs(self.current_twist.linear.x) > 0.05 or abs(self.current_twist.angular) > 0.05:
-            if self.current_state != "RESOLVING_CONFLICT":
+            if self.current_state not in ("RESOLVING_CONFLICT", "CHARGING"):
                 self.current_state = "NAVIGATING"
         elif self.current_state == "NAVIGATING":
             self.current_state = "IDLE"
@@ -87,6 +89,22 @@ class StatePublisherNode:
     def status_callback(self, msg: Any) -> None:
         """Update robot state machine status string."""
         self.current_state = msg.data
+
+    def charging_intent_callback(self, msg: Any) -> None:
+        """Process charging intent notifications and update robot state."""
+        try:
+            data = str(msg.data)
+            parts = data.split(':')
+            action = parts[0].upper()
+            if action in ("CHARGING_INTENT", "CHARGING", "CLAIM"):
+                self.is_charging = True
+                self.current_state = "CHARGING"
+            elif action in ("RELEASE", "COMPLETED", "DISCHARGED", "IDLE"):
+                self.is_charging = False
+                if self.current_state == "CHARGING":
+                    self.current_state = "IDLE"
+        except Exception as e:
+            self.node.get_logger().debug(f"Failed to parse charging intent: {e}")
 
     def publish_state(self) -> None:
         """Publish updated telemetry state to the fleet mesh network."""

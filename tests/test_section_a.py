@@ -1,6 +1,7 @@
+# NOTE: Native ROS 2 runtime (rclpy C-extensions / daemon) is unavailable in this Windows host environment; using MockNode/MockMessageBus harness for in-process node regression testing.
 """
 Regression tests for Section A: Topic plumbing mismatches.
-A1: StatePublisher battery topic alignment and BatteryState handling.
+A1: StatePublisher battery topic alignment and BatteryState/Float32 handling.
 A2: StatePublisher charging intent subscription and state mapping.
 A3: IntentPublisher plan topic alignment.
 A4: IntentPublisher goal topic alignment.
@@ -73,6 +74,60 @@ class TestSectionA(unittest.TestCase):
         self.assertAlmostEqual(payload["battery"], 72.0, delta=0.1,
                                msg="Published /fleet/robot_1/state did not reflect BatteryState percentage!")
 
+    def test_a1b_state_publisher_receives_float32(self):
+        """
+        [A1b Regression Test]
+        Verify that StatePublisher correctly receives Float32 telemetry messages on
+        /fleet/{robot_id}/battery and updates /fleet/{robot_id}/state.
+        """
+        node = MockNode("state_publisher_node", bus=self.bus)
+        node.declare_parameter("robot_id", "robot_1")
+        node.declare_parameter("publish_rate_hz", 20.0)
+
+        sp = StatePublisherNode(node)
+        self.assertEqual(sp.battery_pct, 100.0)
+
+        # Dispatch Float32 on the monitor's published topic
+        self.bus.dispatch("/fleet/robot_1/battery", Float32(data=45.5))
+        self.assertAlmostEqual(sp.battery_pct, 45.5, delta=0.1)
+
+        sp.publish_state()
+        state_pubs = [p for p in node.publishers if p.topic == "/fleet/robot_1/state"]
+        last_msg = state_pubs[0].published_messages[-1]
+        payload = json.loads(last_msg.data)
+        self.assertAlmostEqual(payload["battery"], 45.5, delta=0.1)
+
+    def test_a2_charging_intent_maps_to_charging_state(self):
+        """
+        [A2 Regression Test]
+        Verify that StatePublisher subscribes to /fleet/{robot_id}/charging_intent,
+        and when a charging intent message arrives, updates is_charging to True
+        and current_state to 'CHARGING'.
+        """
+        node = MockNode("state_publisher_node", bus=self.bus)
+        node.declare_parameter("robot_id", "robot_1")
+        node.declare_parameter("publish_rate_hz", 20.0)
+
+        sp = StatePublisherNode(node)
+        self.assertEqual(sp.current_state, "IDLE")
+        self.assertFalse(sp.is_charging)
+
+        # Dispatch charging intent on /fleet/robot_1/charging_intent (as published by battery_monitor)
+        intent_msg = String(data="CHARGING_INTENT:robot_1:station_north_west")
+        self.bus.dispatch("/fleet/robot_1/charging_intent", intent_msg)
+
+        # In un-fixed code, StatePublisher does not subscribe to /fleet/robot_1/charging_intent
+        # so current_state never becomes CHARGING and is_charging remains False.
+        self.assertTrue(sp.is_charging, "is_charging was not set to True upon charging intent!")
+        self.assertEqual(sp.current_state, "CHARGING", "current_state did not become CHARGING!")
+
+        sp.publish_state()
+        state_pubs = [p for p in node.publishers if p.topic == "/fleet/robot_1/state"]
+        last_msg = state_pubs[0].published_messages[-1]
+        payload = json.loads(last_msg.data)
+        self.assertEqual(payload["state"], "CHARGING")
+
 
 if __name__ == '__main__':
     unittest.main()
+
