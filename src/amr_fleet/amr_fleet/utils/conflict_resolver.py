@@ -129,6 +129,31 @@ class ConflictResolver:
 
         return conflicts
 
+    def compute_nearby_peers_stationary(
+        self,
+        my_pos: Vector2D,
+        peer_positions: Dict[str, Vector2D],
+        peer_speeds: Dict[str, float],
+        radius: float = 2.5,
+        speed_threshold: Optional[float] = None
+    ) -> bool:
+        """
+        Compute whether nearby peers within radius are stationary.
+        Returns False if no peers are within radius or if any nearby peer is moving (> threshold).
+        Returns True only if at least one peer is nearby and ALL nearby peers are stationary.
+        """
+        thresh = speed_threshold if speed_threshold is not None else self.speed_threshold
+        nearby_count = 0
+        for peer_id, pos in peer_positions.items():
+            if peer_id == self.robot_id:
+                continue
+            if my_pos.distance_to(pos) <= radius:
+                nearby_count += 1
+                spd = peer_speeds.get(peer_id, 0.0)
+                if spd > thresh:
+                    return False
+        return nearby_count > 0
+
     def update_deadlock_state(
         self,
         current_speed: float,
@@ -205,6 +230,9 @@ class ConflictResolverNode:
         self.battery_pct = 100.0
         self.planned_path: List[Vector2D] = []
         self.peer_intents: Dict[str, RobotIntentData] = {}
+        self.peer_positions: Dict[str, Vector2D] = {}
+        self.peer_speeds: Dict[str, float] = {}
+        self.peer_last_seen: Dict[str, float] = {}
 
         from geometry_msgs.msg import PoseStamped, Point
         from nav_msgs.msg import Path
@@ -293,6 +321,15 @@ class ConflictResolverNode:
         msg.data = f"{corridor_id}:RELEASED"
         self.token_pub.publish(msg)
 
+    def update_peer_state(self, peer_id: str, pos: Vector2D, speed: float) -> None:
+        """Update tracked position and velocity for peer AMR."""
+        if peer_id == self.robot_id:
+            return
+        now = time.time()
+        self.peer_positions[peer_id] = pos
+        self.peer_speeds[peer_id] = speed
+        self.peer_last_seen[peer_id] = now
+
     def resolution_loop(self) -> None:
         """Periodic conflict and deadlock monitoring loop."""
         from std_msgs.msg import String, Float32
@@ -306,8 +343,12 @@ class ConflictResolverNode:
         p_msg.data = float(my_priority)
         self.priority_pub.publish(p_msg)
 
+        nearby_stationary = self.resolver.compute_nearby_peers_stationary(
+            self.current_pos, self.peer_positions, self.peer_speeds
+        )
+
         is_deadlock = self.resolver.update_deadlock_state(
-            self.current_speed, dist_to_goal, nearby_peers_stationary=True
+            self.current_speed, dist_to_goal, nearby_peers_stationary=nearby_stationary
         )
 
         if is_deadlock:

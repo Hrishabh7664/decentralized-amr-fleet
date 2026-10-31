@@ -377,6 +377,98 @@ tests\test_section_a.py .                                                [100%]
 ======================= 1 passed, 5 deselected in 0.05s =======================
 ```
 
+---
+
+## B1: `conflict_resolver.py` Nearby Peers Stationary Calculation
+
+### 1. Original Bug
+`resolution_loop` in `ConflictResolverNode` called `self.resolver.update_deadlock_state(..., nearby_peers_stationary=True)` unconditionally. Any robot that stopped for > 3.0 seconds (e.g. at an intersection or waiting for clearance) was incorrectly flagged as deadlocked, even when surrounding peers were moving freely.
+
+### 2. Required Fix
+Compute `nearby_peers_stationary` dynamically from peer positions and velocities within a radius (default `2.5m`). Deadlock is triggered only when:
+1. The robot itself is stopped (speed <= threshold) for > 3.0 seconds with goal unreached.
+2. At least one peer AMR is nearby in the collision vicinity.
+3. ALL nearby peer AMRs are also stationary (speed <= threshold).
+
+### 3. Failing Test Output
+```
+================================== FAILURES ===================================
+___________ TestSectionB.test_b1_unit_nearby_peers_stationary_logic ___________
+
+self = <test_section_b.TestSectionB testMethod=test_b1_unit_nearby_peers_stationary_logic>
+
+    def test_b1_unit_nearby_peers_stationary_logic(self):
+        ...
+>       peers_stationary = resolver.compute_nearby_peers_stationary(
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            my_pos=Vector2D(0.0, 0.0),
+            peer_positions=peer_positions,
+            peer_speeds=peer_speeds,
+            radius=2.5
+        )
+E       AttributeError: 'ConflictResolver' object has no attribute 'compute_nearby_peers_stationary'
+
+tests\test_section_b.py:57: AttributeError
+=========================== short test summary info ===========================
+FAILED tests/test_section_b.py::TestSectionB::test_b1_unit_nearby_peers_stationary_logic
+============================== 1 failed in 0.18s ==============================
+```
+
+### 4. Fix Applied
+```diff
+--- a/src/amr_fleet/amr_fleet/utils/conflict_resolver.py
++++ b/src/amr_fleet/amr_fleet/utils/conflict_resolver.py
+@@ -131,2 +131,20 @@
++    def compute_nearby_peers_stationary(
++        self,
++        my_pos: Vector2D,
++        peer_positions: Dict[str, Vector2D],
++        peer_speeds: Dict[str, float],
++        radius: float = 2.5,
++        speed_threshold: Optional[float] = None
++    ) -> bool:
++        """Compute whether nearby peers within radius are stationary."""
++        thresh = speed_threshold if speed_threshold is not None else self.speed_threshold
++        nearby_count = 0
++        for peer_id, pos in peer_positions.items():
++            if peer_id == self.robot_id:
++                continue
++            if my_pos.distance_to(pos) <= radius:
++                nearby_count += 1
++                if peer_speeds.get(peer_id, 0.0) > thresh:
++                    return False
++        return nearby_count > 0
+@@ -334,3 +352,5 @@
+-        is_deadlock = self.resolver.update_deadlock_state(
+-            self.current_speed, dist_to_goal, nearby_peers_stationary=True
+-        )
++        nearby_stat = self.resolver.compute_nearby_peers_stationary(
++            self.current_pos, self.peer_positions, self.peer_speeds
++        )
++        is_deadlock = self.resolver.update_deadlock_state(
++            self.current_speed, dist_to_goal, nearby_peers_stationary=nearby_stat
++        )
+```
+
+### 5. Passing Test Output
+**Command:**
+```powershell
+.\.venv\Scripts\pytest.exe tests/test_section_b.py -k test_b1
+```
+**Output:**
+```
+============================= test session starts =============================
+platform win32 -- Python 3.12.14, pytest-9.2.0, pluggy-1.7.0
+rootdir: C:\Users\hrishabh\githubmy\SWARM
+configfile: pyproject.toml
+collected 2 items
+
+tests\test_section_b.py ..                                               [100%]
+
+============================== 2 passed in 0.05s ==============================
+```
+
+
 
 
 
