@@ -133,6 +133,94 @@ class TestSectionB(unittest.TestCase):
         self.assertTrue(len(conflict_pubs[0].published_messages) > 0,
                         "Deadlock message was not published when both robots are stalled!")
 
+    def test_b2_corridor_token_contention_and_broadcast(self):
+        """
+        [B2 Regression Test]
+        Verify end-to-end TOKEN_REQ / TOKEN_GRANT / TOKEN_DENY broadcast protocol:
+        (i) Two resolvers contend for the same corridor.
+        (ii) TOKEN_REQ is broadcast on /fleet/conflicts.
+        (iii) Exactly one wins (higher priority wins).
+        (iv) When the winner releases the token, the second robot can acquire it.
+        """
+        node_1 = MockNode("resolver_r1", bus=self.bus)
+        node_1.declare_parameter("robot_id", "robot_1")
+        node_1.declare_parameter("safety_dist", 0.8)
+
+        node_2 = MockNode("resolver_r2", bus=self.bus)
+        node_2.declare_parameter("robot_id", "robot_2")
+        node_2.declare_parameter("safety_dist", 0.8)
+
+        r1 = ConflictResolverNode(node_1)
+        r2 = ConflictResolverNode(node_2)
+
+        # Set priorities: Robot 1 has 0.85, Robot 2 has 0.60
+        r1.current_pos = Vector2D(0.0, 0.0)
+        r1.goal_pos = Vector2D(2.0, 0.0)  # closer to goal -> higher priority
+        r1.battery_pct = 90.0
+
+        r2.current_pos = Vector2D(0.0, 0.0)
+        r2.goal_pos = Vector2D(10.0, 0.0)  # further -> lower priority
+        r2.battery_pct = 90.0
+
+        # In un-fixed code, request_corridor_token never broadcasts TOKEN_REQ
+        granted_1 = r1.request_corridor_token("corridor_main")
+        self.assertTrue(granted_1)
+
+        # Check that TOKEN_REQ was broadcast to peer on /fleet/conflicts
+        fleet_conflicts_pub = [p for p in node_1.publishers if p.topic == "/fleet/conflicts"][0]
+        fleet_conflicts_msgs = [m.data for m in fleet_conflicts_pub.published_messages]
+        self.assertTrue(any("TOKEN_REQ:robot_1:corridor_main" in m for m in fleet_conflicts_msgs),
+                        "TOKEN_REQ was never broadcast on /fleet/conflicts!")
+
+        # Robot 2 requests the same corridor while held by Robot 1
+        granted_2 = r2.request_corridor_token("corridor_main")
+        self.assertFalse(granted_2, "Robot 2 acquired corridor_main while already held by Robot 1! Exactly one must win.")
+
+        # Robot 1 releases the corridor
+        r1.release_corridor_token("corridor_main")
+
+        # Now Robot 2 can acquire
+        granted_2_retry = r2.request_corridor_token("corridor_main")
+        self.assertTrue(granted_2_retry, "Robot 2 failed to acquire corridor after Robot 1 released it!")
+
+    def test_b3_pruning_stale_peers_in_token_and_deadlock_state(self):
+        """
+        [B3 Regression Test]
+        Verify that peers that stop publishing are pruned after timeout:
+        (i) ConflictResolver drops expired corridor token reservations held by dead peers.
+        (ii) ConflictResolverNode drops stale peer velocity/position tracking entries.
+        """
+        resolver = ConflictResolver("robot_1", safety_distance=0.8)
+        base_time = 100.0
+
+        # Robot 2 holds corridor token at t=100s
+        resolver.corridor_tokens["corridor_main"] = "robot_2"
+        resolver.token_request_timestamps["corridor_main"] = base_time
+
+        # At t=105s (within 10s timeout): token still held by robot_2
+        resolver.prune_stale_tokens(timeout_s=10.0, current_time=base_time + 5.0)
+        self.assertEqual(resolver.corridor_tokens.get("corridor_main"), "robot_2")
+
+        # At t=115s (>10s timeout): robot_2 timed out, token is revoked
+        resolver.prune_stale_tokens(timeout_s=10.0, current_time=base_time + 15.0)
+        self.assertNotIn("corridor_main", resolver.corridor_tokens,
+                         "Stale peer corridor token was not pruned after timeout!")
+
+        # Check Node-level peer tracking pruning
+        node = MockNode("resolver_node", bus=self.bus)
+        node.declare_parameter("robot_id", "robot_1")
+        node.declare_parameter("safety_dist", 0.8)
+
+        cr = ConflictResolverNode(node)
+        cr.update_peer_state("robot_2", pos=Vector2D(1.0, 0.0), speed=0.0)
+        cr.peer_last_seen["robot_2"] = base_time
+
+        # Prune at t=115s
+        dropped = cr.prune_stale_peers(timeout_s=10.0, current_time=base_time + 15.0)
+        self.assertIn("robot_2", dropped)
+        self.assertNotIn("robot_2", cr.peer_positions)
+        self.assertNotIn("robot_2", cr.peer_speeds)
+
 
 if __name__ == '__main__':
     unittest.main()

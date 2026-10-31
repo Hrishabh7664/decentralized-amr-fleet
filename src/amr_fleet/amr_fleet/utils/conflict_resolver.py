@@ -209,6 +209,20 @@ class ConflictResolver:
         """Release previously acquired corridor passage token."""
         if self.corridor_tokens.get(corridor_id) == self.robot_id:
             del self.corridor_tokens[corridor_id]
+            self.token_request_timestamps.pop(corridor_id, None)
+
+    def prune_stale_tokens(self, timeout_s: float = 10.0, current_time: Optional[float] = None) -> List[str]:
+        """Prune tokens held by peers that haven't refreshed within timeout_s."""
+        now = current_time if current_time is not None else time.time()
+        pruned = []
+        for corridor_id, holding_peer in list(self.corridor_tokens.items()):
+            if holding_peer != self.robot_id:
+                req_time = self.token_request_timestamps.get(corridor_id, 0.0)
+                if now - req_time > timeout_s:
+                    del self.corridor_tokens[corridor_id]
+                    self.token_request_timestamps.pop(corridor_id, None)
+                    pruned.append(corridor_id)
+        return pruned
 
 
 class ConflictResolverNode:
@@ -304,8 +318,20 @@ class ConflictResolverNode:
             self.node.get_logger().debug(f"Conflict broadcast parse: {e}")
 
     def request_corridor_token(self, corridor_id: str) -> bool:
-        """Request corridor token and broadcast status."""
+        """Request corridor token, broadcast TOKEN_REQ to fleet, and publish status."""
         from std_msgs.msg import String
+        holding_peer = self.resolver.corridor_tokens.get(corridor_id)
+        if holding_peer is not None and holding_peer != self.robot_id:
+            return False
+
+        dist_to_goal = self.current_pos.distance_to(self.goal_pos) if self.goal_pos else 5.0
+        my_priority = self.resolver.compute_composite_priority(dist_to_goal, 0.8, self.battery_pct)
+
+        # Broadcast TOKEN_REQ to fleet
+        req_msg = String()
+        req_msg.data = f"TOKEN_REQ:{self.robot_id}:{corridor_id}:{my_priority:.3f}"
+        self.fleet_conflict_pub.publish(req_msg)
+
         granted = self.resolver.request_corridor_token(corridor_id)
         if granted:
             msg = String()
@@ -314,12 +340,18 @@ class ConflictResolverNode:
         return granted
 
     def release_corridor_token(self, corridor_id: str) -> None:
-        """Release corridor token and broadcast status."""
+        """Release corridor token, broadcast TOKEN_REL to fleet, and publish status."""
         from std_msgs.msg import String
-        self.resolver.release_corridor_token(corridor_id)
-        msg = String()
-        msg.data = f"{corridor_id}:RELEASED"
-        self.token_pub.publish(msg)
+        if self.resolver.corridor_tokens.get(corridor_id) == self.robot_id:
+            self.resolver.release_corridor_token(corridor_id)
+
+            rel_msg = String()
+            rel_msg.data = f"TOKEN_REL:{self.robot_id}:{corridor_id}"
+            self.fleet_conflict_pub.publish(rel_msg)
+
+            msg = String()
+            msg.data = f"{corridor_id}:RELEASED"
+            self.token_pub.publish(msg)
 
     def update_peer_state(self, peer_id: str, pos: Vector2D, speed: float) -> None:
         """Update tracked position and velocity for peer AMR."""
@@ -330,9 +362,22 @@ class ConflictResolverNode:
         self.peer_speeds[peer_id] = speed
         self.peer_last_seen[peer_id] = now
 
+    def prune_stale_peers(self, timeout_s: float = 10.0, current_time: Optional[float] = None) -> List[str]:
+        """Prune tracking records for peer robots that have ceased communication."""
+        now = current_time if current_time is not None else time.time()
+        stale = [peer_id for peer_id, last_time in list(self.peer_last_seen.items()) if now - last_time > timeout_s]
+        for peer_id in stale:
+            self.peer_positions.pop(peer_id, None)
+            self.peer_speeds.pop(peer_id, None)
+            self.peer_last_seen.pop(peer_id, None)
+            self.peer_intents.pop(peer_id, None)
+        self.resolver.prune_stale_tokens(timeout_s=timeout_s, current_time=now)
+        return stale
+
     def resolution_loop(self) -> None:
         """Periodic conflict and deadlock monitoring loop."""
         from std_msgs.msg import String, Float32
+        self.prune_stale_peers(timeout_s=10.0)
         if not self.goal_pos:
             return
 

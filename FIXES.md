@@ -468,6 +468,103 @@ tests\test_section_b.py ..                                               [100%]
 ============================== 2 passed in 0.05s ==============================
 ```
 
+---
+
+## B2: `conflict_resolver.py` Corridor Token Contention & Broadcast Protocol
+
+### 1. Original Bug
+`request_corridor_token` in `ConflictResolver` only wrote to a local internal dictionary; no `TOKEN_REQ` was ever broadcast to peers over `/fleet/conflicts`. As a result, when two AMRs contended for the same narrow aisle simultaneously, both granted themselves the token locally, leading to head-on deadlock and mutual exclusion violation.
+
+### 2. Protocol & Topic Alignment
+- **Broadcast Topics**:
+  - `TOKEN_REQ:{robot_id}:{corridor_id}:{priority}` on `/fleet/conflicts`
+  - `TOKEN_REL:{robot_id}:{corridor_id}` on `/fleet/conflicts`
+  - Status output: `{corridor_id}:HELD` and `{corridor_id}:RELEASED` on `/fleet/{robot_id}/token_status`
+- **Contention Arbitration**:
+  - Peers track active token holders. If held by another AMR, new requests are rejected (`False`).
+  - Upon release, the corridor token is freed across all listening peers.
+
+### 3. Failing Test Output
+```
+================================== FAILURES ===================================
+________ TestSectionB.test_b2_corridor_token_contention_and_broadcast _________
+
+self = <test_section_b.TestSectionB testMethod=test_b2_corridor_token_contention_and_broadcast>
+...
+>       self.assertTrue(any("TOKEN_REQ:robot_1:corridor_main" in m for m in fleet_conflicts_msgs),
+                        "TOKEN_REQ was never broadcast on /fleet/conflicts!")
+E       AssertionError: False is not true : TOKEN_REQ was never broadcast on /fleet/conflicts!
+
+tests\test_section_b.py:172: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_section_b.py::TestSectionB::test_b2_corridor_token_contention_and_broadcast
+======================= 1 failed, 2 deselected in 0.18s =======================
+```
+
+### 4. Passing Test Output
+**Command:**
+```powershell
+.\.venv\Scripts\pytest.exe tests/test_section_b.py -k test_b2
+```
+**Output:**
+```
+============================= test session starts =============================
+platform win32 -- Python 3.12.14, pytest-9.2.0, pluggy-1.7.0
+rootdir: C:\Users\hrishabh\githubmy\SWARM
+configfile: pyproject.toml
+collected 3 items / 2 deselected / 1 selected
+
+tests\test_section_b.py .                                                [100%]
+
+======================= 1 passed, 2 deselected in 0.05s =======================
+```
+
+---
+
+## B3: `conflict_resolver.py` Pruning Stale Peers in Token & Deadlock State
+
+### 1. Original Bug
+No pruning or timeout existed for stale peer AMR states. If a peer AMR acquired a corridor token and crashed or lost communication, the corridor remained locked permanently. Similarly, stale peer velocity and positions remained indefinitely in memory.
+
+### 2. Required Fix
+- Implemented `prune_stale_tokens(timeout_s=10.0)` in `ConflictResolver`: automatically revokes tokens held by silent peers after 10 seconds.
+- Implemented `prune_stale_peers(timeout_s=10.0)` in `ConflictResolverNode`: evicts dead peers from position, velocity, and intent registries, and executes periodic pruning on every resolution loop tick.
+
+### 3. Failing Test Output
+```
+================================== FAILURES ===================================
+____ TestSectionB.test_b3_pruning_stale_peers_in_token_and_deadlock_state _____
+
+self = <test_section_b.TestSectionB testMethod=test_b3_pruning_stale_peers_in_token_and_deadlock_state>
+...
+>       resolver.prune_stale_tokens(timeout_s=10.0, current_time=base_time + 5.0)
+E       AttributeError: 'ConflictResolver' object has no attribute 'prune_stale_tokens'
+
+tests\test_section_b.py:201: AttributeError
+=========================== short test summary info ===========================
+FAILED tests/test_section_b.py::TestSectionB::test_b3_pruning_stale_peers_in_token_and_deadlock_state
+======================= 1 failed, 3 deselected in 0.18s =======================
+```
+
+### 4. Passing Test Output
+**Command:**
+```powershell
+.\.venv\Scripts\pytest.exe tests/test_section_b.py -k test_b3
+```
+**Output:**
+```
+============================= test session starts =============================
+platform win32 -- Python 3.12.14, pytest-9.2.0, pluggy-1.7.0
+rootdir: C:\Users\hrishabh\githubmy\SWARM
+configfile: pyproject.toml
+collected 4 items / 3 deselected / 1 selected
+
+tests\test_section_b.py .                                                [100%]
+
+======================= 1 passed, 3 deselected in 0.06s =======================
+```
+
+
 
 
 
