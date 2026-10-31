@@ -171,3 +171,85 @@ tests\test_section_a.py .                                                [100%]
 ======================= 1 passed, 2 deselected in 0.05s =======================
 ```
 
+---
+
+## A3: `intent_publisher.py` Subscribes to Planned Path Topic
+
+### 1. Original Bug
+`intent_publisher` was susceptible to missing path waypoints if published on either `/fleet/{robot_id}/plan` or hardware/legacy topic `/{robot_id}/plan`. If misaligned, `planned_path` remained empty (`[]`), broadcasting an empty route in `/fleet/{robot_id}/intent`.
+
+### 2. Topic Alignment
+- **Publisher (`global_planner.py:291`)**:
+  ```python
+  self.plan_pub = self.node.create_publisher(Path, f'/fleet/{self.robot_id}/plan', 10)
+  ```
+- **Subscriber (`intent_publisher.py:47-48`)**:
+  ```python
+  self.node.create_subscription(Path, f'/fleet/{self.robot_id}/plan', self.plan_callback, 10)
+  self.node.create_subscription(Path, f'/{self.robot_id}/plan', self.plan_callback, 10)
+  ```
+  *Aligned topic: `/fleet/{robot_id}/plan` (with dual subscription on `/{robot_id}/plan`).*
+
+### 3. Failing Test Output
+```
+================================== FAILURES ===================================
+__________ TestSectionA.test_a3_intent_publisher_subscribes_to_plan ___________
+
+self = <test_section_a.TestSectionA testMethod=test_a3_intent_publisher_subscribes_to_plan>
+
+    def test_a3_intent_publisher_subscribes_to_plan(self):
+        ...
+        self.bus.dispatch("/robot_1/plan", path_msg)
+>       self.assertEqual(len(ip.planned_path), 3, "planned_path was empty after publishing on /robot_1/plan!")
+E       AssertionError: 0 != 3 : planned_path was empty after publishing on /robot_1/plan!
+
+tests\test_section_a.py:154: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_section_a.py::TestSectionA::test_a3_intent_publisher_subscribes_to_plan
+======================= 1 failed, 3 deselected in 0.19s =======================
+```
+
+### 4. Fix Applied
+```diff
+--- a/src/amr_fleet/amr_fleet/utils/intent_publisher.py
++++ b/src/amr_fleet/amr_fleet/utils/intent_publisher.py
+@@ -47,2 +47,4 @@
+         self.node.create_subscription(Path, f'/fleet/{self.robot_id}/plan', self.plan_callback, 10)
++        self.node.create_subscription(Path, f'/{self.robot_id}/plan', self.plan_callback, 10)
+         self.node.create_subscription(Point, f'/fleet/{self.robot_id}/goal', self.goal_callback, 10)
++        self.node.create_subscription(Point, f'/{self.robot_id}/goal', self.goal_callback, 10)
+@@ -57,2 +59,10 @@
+     def plan_callback(self, msg: Any) -> None:
+-        """Update cached planned path waypoints."""
+-        self.planned_path = [Vector2D(ps.pose.position.x, ps.pose.position.y) for ps in msg.poses]
++        """Update cached planned path waypoints."""
++        path = []
++        for ps in getattr(msg, 'poses', []):
++            if hasattr(ps, 'pose'):
++                path.append(Vector2D(ps.pose.position.x, ps.pose.position.y))
++            elif hasattr(ps, 'position'):
++                path.append(Vector2D(ps.position.x, ps.position.y))
++            elif hasattr(ps, 'x') and hasattr(ps, 'y'):
++                path.append(Vector2D(ps.x, ps.y))
++        self.planned_path = path
+```
+
+### 5. Passing Test Output
+**Command:**
+```powershell
+.\.venv\Scripts\pytest.exe tests/test_section_a.py -k test_a3
+```
+**Output:**
+```
+============================= test session starts =============================
+platform win32 -- Python 3.12.14, pytest-9.2.0, pluggy-1.7.0
+rootdir: C:\Users\hrishabh\githubmy\SWARM
+configfile: pyproject.toml
+collected 4 items / 3 deselected / 1 selected
+
+tests\test_section_a.py .                                                [100%]
+
+======================= 1 passed, 3 deselected in 0.06s =======================
+```
+
+

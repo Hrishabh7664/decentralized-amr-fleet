@@ -127,6 +127,39 @@ class TestSectionA(unittest.TestCase):
         payload = json.loads(last_msg.data)
         self.assertEqual(payload["state"], "CHARGING")
 
+    def test_a3_intent_publisher_subscribes_to_plan(self):
+        """
+        [A3 Regression Test]
+        Verify that IntentPublisher receives Path on both /fleet/{robot_id}/plan and
+        legacy /{robot_id}/plan, updates planned_path, and outputs the path in /fleet/{id}/intent.
+        """
+        from amr_fleet.utils.intent_publisher import IntentPublisherNode
+
+        node = MockNode("intent_publisher_node", bus=self.bus)
+        node.declare_parameter("robot_id", "robot_1")
+        node.declare_parameter("publish_rate_hz", 2.0)
+
+        ip = IntentPublisherNode(node)
+        self.assertEqual(len(ip.planned_path), 0)
+
+        path_msg = Path()
+        for x, y in [(1.0, 2.0), (3.0, 4.0), (5.0, 6.0)]:
+            ps = PoseStamped()
+            ps.pose.position.x = x
+            ps.pose.position.y = y
+            path_msg.poses.append(ps)
+
+        # In un-fixed code, publishing on legacy /{robot_id}/plan fails to update planned_path
+        self.bus.dispatch("/robot_1/plan", path_msg)
+        self.assertEqual(len(ip.planned_path), 3, "planned_path was empty after publishing on /robot_1/plan!")
+
+        ip.publish_intent()
+        intent_pubs = [p for p in node.publishers if p.topic == "/fleet/robot_1/intent"]
+        self.assertTrue(len(intent_pubs) > 0)
+        last_msg = intent_pubs[0].published_messages[-1]
+        payload = json.loads(last_msg.data)
+        self.assertEqual(len(payload["path"]), 3)
+
 
 if __name__ == '__main__':
     unittest.main()
