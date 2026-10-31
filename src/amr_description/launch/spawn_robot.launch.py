@@ -5,9 +5,35 @@ Launch script to spawn a single AMR model in Gazebo with namespaced robot_state_
 import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.substitutions import LaunchConfiguration, Command
 from launch_ros.actions import Node
+
+
+def spawn_robot_eval(context, *args, **kwargs):
+    robot_name = context.perform_substitution(LaunchConfiguration('robot_name'))
+    robot_namespace = context.perform_substitution(LaunchConfiguration('robot_namespace'))
+    x_pose = context.perform_substitution(LaunchConfiguration('x_pose'))
+    y_pose = context.perform_substitution(LaunchConfiguration('y_pose'))
+    z_pose = context.perform_substitution(LaunchConfiguration('z_pose'))
+    yaw = context.perform_substitution(LaunchConfiguration('yaw'))
+
+    spawn_entity_node = Node(
+        package='amr_description',
+        executable='amr_spawner.py',
+        name=f'spawner_{robot_name}',
+        arguments=[
+            robot_name,
+            robot_namespace,
+            x_pose,
+            y_pose,
+            z_pose,
+            yaw
+        ],
+        output='screen'
+    )
+
+    return [spawn_entity_node]
 
 
 def generate_launch_description():
@@ -21,12 +47,7 @@ def generate_launch_description():
     z_pose_arg = DeclareLaunchArgument('z_pose', default_value='0.05')
     yaw_arg = DeclareLaunchArgument('yaw', default_value='0.0')
 
-    robot_name = LaunchConfiguration('robot_name')
     robot_namespace = LaunchConfiguration('robot_namespace')
-    x_pose = LaunchConfiguration('x_pose')
-    y_pose = LaunchConfiguration('y_pose')
-    z_pose = LaunchConfiguration('z_pose')
-    yaw = LaunchConfiguration('yaw')
 
     robot_description_content = Command([
         'xacro ', xacro_file,
@@ -45,22 +66,6 @@ def generate_launch_description():
         }]
     )
 
-    spawn_entity_node = Node(
-        package='gazebo_ros',
-        executable='spawn_entity.py',
-        name='spawn_entity',
-        namespace=robot_namespace,
-        arguments=[
-            '-entity', robot_name,
-            '-topic', ['/', robot_namespace, '/robot_description'],
-            '-x', x_pose,
-            '-y', y_pose,
-            '-z', z_pose,
-            '-Y', yaw
-        ],
-        output='screen'
-    )
-
     return LaunchDescription([
         robot_name_arg,
         robot_ns_arg,
@@ -69,5 +74,5 @@ def generate_launch_description():
         z_pose_arg,
         yaw_arg,
         robot_state_publisher_node,
-        spawn_entity_node
+        OpaqueFunction(function=spawn_robot_eval)
     ])

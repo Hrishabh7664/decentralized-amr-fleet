@@ -797,11 +797,138 @@ tests\test_section_d.py .                                                [100%]
 
 ======================= 1 passed, 2 deselected in 0.05s =======================
 ```
+---
 
+## E1: `utils.py` Multi-Hop Relay Cache Integration into Comms Modules
 
+### 1. Original Bug
+`MessageRelayCache` was implemented in `amr_fleet.utils` and documented in `docs/architecture.md` as the mesh store-and-forward engine across RF dead zones, but was never imported or instantiated by `state_publisher` or `intent_publisher`. The multi-hop relay mechanism was completely dormant.
 
+### 2. Required Fix
+Integrated `MessageRelayCache` directly into `StatePublisherNode` (and `IntentPublisherNode`):
+- Instantiated `self.relay_cache = MessageRelayCache(ttl_seconds=10.0, max_cache_size=1000)`.
+- Added subscription to mesh relay ingress (`/fleet/relay/in` or configured `relay_in_topic`).
+- Added publisher to mesh relay egress (`/fleet/relay/out` or configured `relay_out_topic`).
+- Implemented `relay_callback(msg)`: checks `relay_cache.should_forward(msg_id)`, decrements packet `ttl`, stamps `relayed_by = self.robot_id`, and forwards only unseen messages with `ttl > 0`, suppressing duplicates and broadcast loops.
 
+### 3. Failing Test Output
+```
+================================== FAILURES ===================================
+________ TestSectionE.test_e1_message_relay_cache_multi_hop_forwarding ________
 
+self = <test_section_e.TestSectionE testMethod=test_e1_message_relay_cache_multi_hop_forwarding>
+...
+>       self.assertTrue(
+            hasattr(state_pub, "relay_cache"),
+            "StatePublisherNode lacks 'relay_cache' instance (MessageRelayCache)!"
+        )
+E       AssertionError: False is not true : StatePublisherNode lacks 'relay_cache' instance (MessageRelayCache)!
 
+tests\test_section_e.py:52: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_section_e.py::TestSectionE::test_e1_message_relay_cache_multi_hop_forwarding
+============================== 1 failed in 0.16s ==============================
+```
 
+### 4. Passing Test Output
+**Command:**
+```powershell
+.\.venv\Scripts\pytest.exe tests/test_section_e.py -k test_e1
+```
+**Output:**
+```
+============================= test session starts =============================
+platform win32 -- Python 3.12.14, pytest-9.2.0, pluggy-1.7.0
+rootdir: C:\Users\hrishabh\githubmy\SWARM
+configfile: pyproject.toml
+collected 2 items / 1 deselected / 1 selected
 
+tests\test_section_e.py .                                                [100%]
+
+======================= 1 passed, 1 deselected in 0.05s =======================
+```
+
+---
+
+## E2: Publisher/Subscriber QoS Profile Policy Enforcement & DDS Compatibility
+
+### 1. Original Bug
+`get_state_qos` (BEST_EFFORT, VOLATILE, depth 5, deadline 100ms) and `get_intent_qos` (RELIABLE, TRANSIENT_LOCAL, depth 10) were defined in `amr_fleet.utils`, but fallback code in `state_publisher.py` and `intent_publisher.py` passed integer queue depth `10` instead of the QoS profiles. Additionally, peer subscriber nodes (such as `ConflictResolverNode`) lacked matching QoS profiles, creating DDS Offered vs Requested QoS incompatibilities that drop packets at the middleware layer.
+
+### 2. Required Fix
+- In `state_publisher.py`: Always apply `get_state_qos() or 10` on `/fleet/{robot_id}/state` publisher.
+- In `intent_publisher.py`: Always apply `get_intent_qos() or 10` on `/fleet/{robot_id}/intent` publisher.
+- In `conflict_resolver.py`: Configured peer intent subscriptions with `get_intent_qos() or 10` and peer state subscriptions with `get_state_qos() or 10`.
+- Verified bidirectional compatibility (`pub_qos.is_compatible_with(sub_qos)`).
+
+### 3. Failing Test Output
+```
+================================== FAILURES ===================================
+_______________ TestSectionE.test_e2_qos_profile_matching_audit _______________
+
+self = <test_section_e.TestSectionE testMethod=test_e2_qos_profile_matching_audit>
+...
+>       self.assertIsInstance(
+            sp.state_pub.qos, QoSProfile,
+            f"state_pub did not use get_state_qos()! QoS was: {sp.state_pub.qos}"
+        )
+E       AssertionError: 10 is not an instance of <class 'mock_ros.QoSProfile'> : state_pub did not use get_state_qos()! QoS was: 10
+
+tests\test_section_e.py:106: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_section_e.py::TestSectionE::test_e2_qos_profile_matching_audit
+============================== 1 failed in 0.16s ==============================
+```
+
+### 4. Passing Test Output & `ros2 topic info -v` Snapshot
+**Command:**
+```powershell
+.\.venv\Scripts\pytest.exe tests/test_section_e.py -k test_e2 -s
+```
+**Output:**
+```
+============================= test session starts =============================
+platform win32 -- Python 3.12.14, pytest-9.2.0, pluggy-1.7.0
+rootdir: C:\Users\hrishabh\githubmy\SWARM
+configfile: pyproject.toml
+collected 2 items / 1 deselected / 1 selected
+
+tests\test_section_e.py 
+--- [ros2 topic info -v /fleet/robot_1/state] ---
+Topic: /fleet/robot_1/state
+Publisher count: 1
+  Node name: state_publisher
+  Endpoint type: PUBLISHER
+  QoS profile:
+    Reliability: BEST_EFFORT
+    History (Depth): KEEP_LAST (5)
+    Durability: VOLATILE
+    Deadline: 100000000 nanoseconds
+Subscription count: 1
+  Node name: conflict_resolver
+  Endpoint type: SUBSCRIPTION
+  QoS profile:
+    Reliability: BEST_EFFORT
+    History (Depth): KEEP_LAST (5)
+    Durability: VOLATILE
+
+--- [ros2 topic info -v /fleet/robot_1/intent] ---
+Topic: /fleet/robot_1/intent
+Publisher count: 1
+  Node name: intent_publisher
+  Endpoint type: PUBLISHER
+  QoS profile:
+    Reliability: RELIABLE
+    History (Depth): KEEP_LAST (10)
+    Durability: TRANSIENT_LOCAL
+Subscription count: 1
+  Node name: conflict_resolver
+  Endpoint type: SUBSCRIPTION
+  QoS profile:
+    Reliability: RELIABLE
+    History (Depth): KEEP_LAST (10)
+    Durability: TRANSIENT_LOCAL
+. [100%]
+
+======================= 1 passed, 1 deselected in 0.05s =======================
+```

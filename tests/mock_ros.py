@@ -129,6 +129,40 @@ class MockTimer:
             self.callback()
 
 
+class MockFuture:
+    def __init__(self, result: Any = None, done: bool = True):
+        self._result = result
+        self._done = done
+
+    def done(self) -> bool:
+        return self._done
+
+    def result(self) -> Any:
+        return self._result
+
+
+class MockClient:
+    def __init__(self, srv_type: Any, srv_name: str):
+        self.srv_type = srv_type
+        self.srv_name = srv_name
+        self.should_fail = False
+        self.service_available = True
+
+    def wait_for_service(self, timeout_sec: float = 1.0) -> bool:
+        return self.service_available
+
+    def call_async(self, request: Any) -> MockFuture:
+        if self.should_fail:
+            class _ResFail:
+                success = False
+                status_message = "Mock entity operation failed"
+            return MockFuture(_ResFail())
+        class _ResSuccess:
+            success = True
+            status_message = "Mock entity operation succeeded"
+        return MockFuture(_ResSuccess())
+
+
 class MockNode:
     """Mock ROS 2 Node providing standard rclpy.node.Node methods."""
     def __init__(self, name: str = "mock_node", bus: Optional[MockMessageBus] = None):
@@ -137,9 +171,20 @@ class MockNode:
         self.publishers: List[MockPublisher] = []
         self.subscriptions: List[MockSubscription] = []
         self.timers: List[MockTimer] = []
+        self.clients: Dict[str, MockClient] = {}
+        self.services: Dict[str, Any] = {}
         self.bus = bus or MockMessageBus()
         self._logger = MockLogger(name)
         self._clock = MockClock()
+
+    def create_client(self, srv_type: Any, srv_name: str) -> MockClient:
+        client = MockClient(srv_type, srv_name)
+        self.clients[srv_name] = client
+        return client
+
+    def create_service(self, srv_type: Any, srv_name: str, callback: Callable[[Any, Any], Any]) -> Any:
+        self.services[srv_name] = callback
+        return callback
 
     def get_name(self) -> str:
         return self._name
@@ -282,9 +327,91 @@ class OccupancyGrid:
         self.data: List[int] = [0] * (100 * 100)
 
 
+class SpawnEntity:
+    class Request:
+        def __init__(self):
+            self.name = ""
+            self.xml = ""
+            self.robot_namespace = ""
+            self.initial_pose = Pose()
+            self.reference_frame = "world"
+
+
+class DeleteEntity:
+    class Request:
+        def __init__(self):
+            self.name = ""
+
+
+class Empty:
+    class Request:
+        pass
+
+
+class ReliabilityPolicy:
+    SYSTEM_DEFAULT = 0
+    RELIABLE = 1
+    BEST_EFFORT = 2
+
+
+class DurabilityPolicy:
+    SYSTEM_DEFAULT = 0
+    TRANSIENT_LOCAL = 1
+    VOLATILE = 2
+
+
+class HistoryPolicy:
+    SYSTEM_DEFAULT = 0
+    KEEP_LAST = 1
+    KEEP_ALL = 2
+
+
+class Duration:
+    def __init__(self, seconds: int = 0, nanoseconds: int = 0):
+        self.seconds = seconds
+        self.nanoseconds = nanoseconds
+
+    @property
+    def nanoseconds_value(self) -> int:
+        return self.seconds * 1_000_000_000 + self.nanoseconds
+
+
+class QoSProfile:
+    def __init__(
+        self,
+        history: Any = HistoryPolicy.KEEP_LAST,
+        depth: int = 10,
+        reliability: Any = ReliabilityPolicy.RELIABLE,
+        durability: Any = DurabilityPolicy.VOLATILE,
+        deadline: Optional[Duration] = None,
+        lifespan: Optional[Duration] = None,
+        liveliness: Any = None,
+        liveliness_lease_duration: Optional[Duration] = None,
+        avoid_ros_namespace_conventions: bool = False
+    ):
+        self.history = history
+        self.depth = depth
+        self.reliability = reliability
+        self.durability = durability
+        self.deadline = deadline
+        self.lifespan = lifespan
+        self.liveliness = liveliness
+        self.liveliness_lease_duration = liveliness_lease_duration
+        self.avoid_ros_namespace_conventions = avoid_ros_namespace_conventions
+
+    def is_compatible_with(self, requested: QoSProfile) -> bool:
+        """DDS QoS compatibility check between offered and requested policies."""
+        if self.reliability == ReliabilityPolicy.BEST_EFFORT and requested.reliability == ReliabilityPolicy.RELIABLE:
+            return False
+        if self.durability == DurabilityPolicy.VOLATILE and requested.durability == DurabilityPolicy.TRANSIENT_LOCAL:
+            return False
+        return True
+
+
 def install_ros_mocks():
     """Install mock ROS 2 packages into sys.modules if real ROS 2 is not present."""
     import types
+    import os
 
     def _ensure_module(mod_name):
         if mod_name not in sys.modules:
@@ -297,15 +424,34 @@ def install_ros_mocks():
     rclpy.shutdown = lambda: None
     rclpy.spin = lambda node: None
     rclpy.spin_once = lambda node, timeout_sec=None: None
+    rclpy.spin_until_future_complete = lambda node, future, timeout_sec=None: None
 
     rclpy_node = _ensure_module("rclpy.node")
     rclpy_node.Node = MockNode
+
+    rclpy_qos = _ensure_module("rclpy.qos")
+    rclpy_qos.QoSProfile = QoSProfile
+    rclpy_qos.ReliabilityPolicy = ReliabilityPolicy
+    rclpy_qos.DurabilityPolicy = DurabilityPolicy
+    rclpy_qos.HistoryPolicy = HistoryPolicy
+
+    rclpy_dur = _ensure_module("rclpy.duration")
+    rclpy_dur.Duration = Duration
 
     std_msgs = _ensure_module("std_msgs")
     std_msgs_msg = _ensure_module("std_msgs.msg")
     std_msgs_msg.Float32 = Float32
     std_msgs_msg.String = String
     std_msgs_msg.Header = Header
+
+    std_srvs = _ensure_module("std_srvs")
+    std_srvs_srv = _ensure_module("std_srvs.srv")
+    std_srvs_srv.Empty = Empty
+
+    gazebo_msgs = _ensure_module("gazebo_msgs")
+    gazebo_msgs_srv = _ensure_module("gazebo_msgs.srv")
+    gazebo_msgs_srv.SpawnEntity = SpawnEntity
+    gazebo_msgs_srv.DeleteEntity = DeleteEntity
 
     sensor_msgs = _ensure_module("sensor_msgs")
     sensor_msgs_msg = _ensure_module("sensor_msgs.msg")
@@ -325,4 +471,8 @@ def install_ros_mocks():
     nav_msgs_msg.Path = Path
     nav_msgs_msg.Odometry = Odometry
     nav_msgs_msg.OccupancyGrid = OccupancyGrid
+
+    ament_index_python = _ensure_module("ament_index_python")
+    ament_index_python_pkgs = _ensure_module("ament_index_python.packages")
+    ament_index_python_pkgs.get_package_share_directory = lambda pkg: os.path.abspath(f"src/{pkg}")
 

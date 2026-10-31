@@ -213,7 +213,10 @@
         pathsGroup.clearLayers();
         Object.entries(intents || {}).forEach(([robotId, intent]) => {
           if (intent.planned_path && intent.planned_path.length > 1) {
-            const latLngs = intent.planned_path.map(pt => toLeafletLatLng(pt.x, pt.y));
+            const latLngs = intent.planned_path.map(pt => {
+              const pos = pt.pose?.position ?? pt.position ?? pt;
+              return toLeafletLatLng(pos.x, pos.y);
+            });
             const color = getRobotColor(robotId);
             L.polyline(latLngs, {
               color: color,
@@ -238,7 +241,8 @@
         const robotsGroup = layersRef.current.robots;
         robotsGroup.clearLayers();
         Object.entries(robots || {}).forEach(([robotId, data]) => {
-          const pos = toLeafletLatLng(data.pose.x, data.pose.y);
+          const robotPose = data.pose?.position ?? data.pose ?? data;
+          const pos = toLeafletLatLng(robotPose.x, robotPose.y);
           const color = getRobotColor(robotId);
           const statusColor = getStatusColor(data.current_state);
 
@@ -574,7 +578,7 @@
             for (let i = 1; i <= 10; i++) {
               ws.send(JSON.stringify({ op: 'subscribe', topic: `/fleet/robot_${i}/state`, type: 'amr_fleet/RobotState' }));
               ws.send(JSON.stringify({ op: 'subscribe', topic: `/fleet/robot_${i}/intent`, type: 'amr_fleet/RobotIntent' }));
-              ws.send(JSON.stringify({ op: 'subscribe', topic: `/fleet/robot_${i}/conflict`, type: 'amr_fleet/Conflict' }));
+              ws.send(JSON.stringify({ op: 'subscribe', topic: `/fleet/robot_${i}/conflict`, type: 'std_msgs/String' }));
             }
           };
 
@@ -591,11 +595,31 @@
                   }
                 }
               } else if (topic.includes('/state')) {
-                setRobots(prev => ({ ...prev, [data.msg.robot_id]: data.msg }));
+                const state = data.msg;
+                const pose = state.pose?.position ?? state.pose ?? state;
+                setRobots(prev => ({ ...prev, [state.robot_id]: {
+                  ...state,
+                  pose: { x: pose.x ?? 0, y: pose.y ?? 0, theta: pose.theta ?? 0 },
+                  battery_percentage: state.battery_percentage ?? state.battery ?? 100,
+                  current_state: state.current_state ?? state.state ?? 'IDLE'
+                } }));
               } else if (topic.includes('/intent')) {
-                setIntents(prev => ({ ...prev, [data.msg.robot_id]: data.msg }));
+                const intent = data.msg;
+                const plannedPath = (intent.planned_path ?? intent.path ?? []).map(pt => {
+                  const pos = pt.pose?.position ?? pt.position ?? pt;
+                  return { x: pos.x, y: pos.y };
+                });
+                setIntents(prev => ({ ...prev, [intent.robot_id]: {
+                  ...intent,
+                  planned_path: plannedPath,
+                  current_goal: intent.current_goal ?? intent.goal,
+                  priority_score: intent.priority_score ?? intent.priority ?? 0
+                } }));
               } else if (topic.includes('/conflict')) {
-                setConflicts(prev => [data.msg, ...prev].slice(0, 50));
+                const conflict = typeof data.msg.data === 'string'
+                  ? { conflict_type: data.msg.data.split(':')[0], initiating_robot_id: data.msg.data.split(':')[1] ?? 'unknown', conflicting_robot_id: 'fleet', initiating_priority: 0, conflicting_priority: 0, resolution_action: data.msg.data, timestamp: Date.now() / 1000, resolved: false }
+                  : data.msg;
+                setConflicts(prev => [conflict, ...prev].slice(0, 50));
               }
             } catch (err) {}
           };

@@ -1,0 +1,9 @@
+# Dockerfile.dashboard - Lightweight Web Dashboard UI
+FROM python:3.10-slim
+
+WORKDIR /app
+COPY src/amr_dashboard/public /app/public
+
+EXPOSE 3000
+
+CMD ["python3", "-m", "http.server", "3000", "--directory", "/app/public"]

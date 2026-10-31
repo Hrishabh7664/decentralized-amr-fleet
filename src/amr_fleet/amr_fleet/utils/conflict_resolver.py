@@ -10,7 +10,7 @@ import time
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
 
-from amr_fleet.utils import Vector2D, ConflictData, RobotIntentData
+from amr_fleet.utils import Vector2D, ConflictData, RobotIntentData, get_state_qos, get_intent_qos
 
 
 @dataclass
@@ -252,19 +252,93 @@ class ConflictResolverNode:
         from nav_msgs.msg import Path
         from std_msgs.msg import String, Float32
 
+        # Use the generated message types when the ROS interfaces are built. The
+        # String format remains available for pure-Python tests and fallback runs.
+        try:
+            from amr_fleet.msg import RobotIntent, RobotState
+            intent_msg_type = RobotIntent
+            state_msg_type = RobotState
+        except ImportError:
+            intent_msg_type = String
+            state_msg_type = String
+
         self.conflict_pub = self.node.create_publisher(String, f'/fleet/{self.robot_id}/conflict', 10)
         self.fleet_conflict_pub = self.node.create_publisher(String, '/fleet/conflicts', 10)
         self.replan_pub = self.node.create_publisher(Point, f'/fleet/{self.robot_id}/replan_trigger', 10)
         self.priority_pub = self.node.create_publisher(Float32, f'/fleet/{self.robot_id}/priority', 10)
         self.token_pub = self.node.create_publisher(String, f'/fleet/{self.robot_id}/token_status', 10)
 
+        qos_state = get_state_qos() or 10
+        qos_intent = get_intent_qos() or 10
+
         self.node.create_subscription(PoseStamped, f'/{self.robot_id}/pose', self.pose_callback, 10)
         self.node.create_subscription(Path, f'/fleet/{self.robot_id}/plan', self.plan_callback, 10)
         self.node.create_subscription(Float32, f'/fleet/{self.robot_id}/battery', self.battery_callback, 10)
         self.node.create_subscription(String, '/fleet/conflicts', self.conflict_broadcast_callback, 10)
 
+        for p_idx in range(1, 10):
+            pid = f"robot_{p_idx}"
+            if pid != self.robot_id:
+                self.node.create_subscription(
+                    intent_msg_type, f'/fleet/{pid}/intent',
+                    lambda m, p=pid: self.peer_intent_callback(m, p),
+                    qos_intent
+                )
+                self.node.create_subscription(
+                    state_msg_type, f'/fleet/{pid}/state',
+                    lambda m, p=pid: self.peer_state_callback(m, p),
+                    qos_state
+                )
+
         self.timer = self.node.create_timer(0.2, self.resolution_loop)
         self.node.get_logger().info(f"ConflictResolver active for {self.robot_id}")
+
+    def peer_intent_callback(self, msg: Any, peer_id: str) -> None:
+        """Update peer route intent and corridor reservations."""
+        import json
+        try:
+            if hasattr(msg, 'planned_path'):
+                poses = [Vector2D(p.pose.position.x, p.pose.position.y) for p in msg.planned_path]
+                self.peer_intents[peer_id] = RobotIntentData(
+                    robot_id=peer_id,
+                    planned_path=poses,
+                    priority_score=float(getattr(msg, 'priority_score', 0.5)),
+                    has_token=bool(getattr(msg, 'has_token', False)),
+                    reserved_corridor_id=str(getattr(msg, 'reserved_corridor_id', ''))
+                )
+            elif hasattr(msg, 'data'):
+                payload = json.loads(msg.data)
+                poses = [Vector2D(p['x'], p['y']) for p in payload.get('path', [])]
+                self.peer_intents[peer_id] = RobotIntentData(
+                    robot_id=peer_id,
+                    planned_path=poses,
+                    priority_score=float(payload.get('priority', 0.5)),
+                    has_token=bool(payload.get('has_token', False)),
+                    reserved_corridor_id=str(payload.get('corridor', ''))
+                )
+        except Exception as e:
+            self.node.get_logger().debug(f"Failed to parse peer intent: {e}")
+
+    def peer_state_callback(self, msg: Any, peer_id: str) -> None:
+        """Update tracking of peer state and speeds."""
+        import json
+        import math
+        try:
+            if hasattr(msg, 'pose'):
+                x = msg.pose.position.x
+                y = msg.pose.position.y
+                vx = msg.twist.linear.x if hasattr(msg, 'twist') else 0.0
+                vy = msg.twist.linear.y if hasattr(msg, 'twist') else 0.0
+                speed = math.hypot(vx, vy)
+                self.update_peer_state(peer_id, Vector2D(x, y), speed)
+            elif hasattr(msg, 'data'):
+                payload = json.loads(msg.data)
+                x = float(payload.get('x', 0.0))
+                y = float(payload.get('y', 0.0))
+                vx = float(payload.get('vx', 0.0))
+                self.update_peer_state(peer_id, Vector2D(x, y), abs(vx))
+        except Exception:
+            pass
 
     def pose_callback(self, msg: Any) -> None:
         """Update robot pose and estimate instantaneous linear velocity."""

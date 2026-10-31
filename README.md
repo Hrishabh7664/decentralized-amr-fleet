@@ -410,76 +410,95 @@ OK
 
 ---
 
+---
+
 ## Repository Structure
 
 ```
 decentralized-amr-fleet/
-├── README.md                      # Comprehensive guide, architecture, and documentation
-├── LICENSE                        # MIT License
-├── Dockerfile                     # Multi-stage ROS 2 Humble + Gazebo + Node.js image
-├── docker-compose.yml             # Orchestration for simulation, rosbridge, dashboard, benchmark
-├── .gitignore                     # Ignores colcon build artifacts, caches, and logs
-├── docs/                          # Detailed engineering documentation
-│   ├── architecture.md            # System hierarchy, DDS QoS design, edge compute budgets
-│   ├── algorithms.md              # Mathematical formulations for A*, ORCA, and deadlocks
-│   └── benchmark.md               # Scenario methodology, metrics, and evaluation results
+├── README.md                      # Architecture diagram, quickstart, specs, troubleshooting
+├── LICENSE                        # Apache 2.0 / MIT License
+├── pyproject.toml                 # Packaging, Black, Ruff, and Pytest configuration
+├── docker-compose.yml             # Top-level Compose orchestration
+├── docker/
+│   ├── Dockerfile.simulation      # ROS 2 Humble + Gazebo Classic simulation image
+│   ├── Dockerfile.dashboard       # Web telemetry dashboard UI container
+│   ├── Dockerfile.rosbridge       # rosbridge WebSocket server image
+│   └── docker-compose.yml         # Container orchestration manifest
+├── config/
+│   ├── cyclonedds.xml             # CycloneDDS peer-to-peer multicast mesh profile
+│   ├── fleet_3.yaml               # 3-AMR central corridor benchmark scenario configuration
+│   ├── fleet_5.yaml               # 5-AMR high-density multi-aisle scenario configuration
+│   └── nav_params.yaml            # Unified A*, ORCA, and conflict resolution parameters
 ├── src/
-│   ├── amr_fleet/                 # Core ROS 2 coordination and planning package
-│   │   ├── CMakeLists.txt         # Generates custom ROS 2 message bindings and binaries
-│   │   ├── package.xml            # Package manifest with ROS 2 dependencies
-│   │   ├── setup.py               # Python setuptools install config
-│   │   ├── amr_fleet/             # Python autonomous modules
-│   │   │   ├── __init__.py
-│   │   │   ├── state_publisher.py # Publishes /fleet/{id}/state (20 Hz, BEST_EFFORT)
-│   │   │   ├── intent_publisher.py# Publishes /fleet/{id}/intent (5 Hz, RELIABLE)
-│   │   │   ├── global_planner.py  # A* 2D occupancy grid & rolling-horizon windowing
-│   │   │   ├── local_planner_orca.py # 2D ORCA half-plane convex optimization
-│   │   │   ├── conflict_resolver.py  # Priority negotiation, deadlocks, and aisle tokens
-│   │   │   ├── task_allocator.py  # P2P auction protocol with battery constraints
-│   │   │   ├── battery_monitor.py # Kinetic discharge model & autonomous charging
-│   │   │   └── utils.py           # Vector2D, geometry math, QoS helpers, relay cache
-│   │   ├── msg/                   # Custom ROS 2 message definitions
-│   │   │   ├── RobotState.msg     # Pose, twist, battery, and operating mode
-│   │   │   ├── RobotIntent.msg    # Planned path, goal, ETA, priority score, corridor token
-│   │   │   ├── TaskBid.msg        # Auction bids with marginal cost and queue status
-│   │   │   └── Conflict.msg       # Conflict alerts and negotiation resolution actions
-│   │   ├── launch/                # ROS 2 launch files
-│   │   │   ├── single_robot.launch.py # Launches onboard stack for 1 AMR
-│   │   │   ├── fleet_3.launch.py      # Launches Gazebo world + 3 AMRs
-│   │   │   ├── fleet_5.launch.py      # Launches Gazebo world + 5 AMRs
-│   │   │   └── dashboard.launch.py    # Launches rosbridge WebSocket and web server
-│   │   ├── config/                # Tunable configuration parameters
-│   │   │   ├── robot_params.yaml      # Chassis geometry, kinematic limits, battery specs
-│   │   │   ├── planner_params.yaml    # A* grid resolution, ORCA horizons, auction weights
-│   │   │   ├── qos_profiles.yaml      # ROS 2 QoS profile definitions
-│   │   │   └── cyclonedds.xml         # CycloneDDS peer-to-peer multicast mesh profile
-│   │   └── worlds/
-│   │       └── warehouse.world        # Gazebo Classic world with shelves, choke, and docks
-│   ├── amr_description/           # Robot URDF model and spawning
-│   │   ├── CMakeLists.txt
-│   │   ├── package.xml
+│   ├── amr_description/           # Robot URDF/XACRO model, physics tags, meshes, and spawn launch
 │   │   ├── urdf/
-│   │   │   └── amr.urdf.xacro         # Differential drive AMR with 2D LiDAR and IMU
-│   │   └── launch/
-│   │       └── spawn_robot.launch.py  # Spawns AMR instance with namespace
+│   │   │   └── amr.urdf.xacro     # URDF with inertials, friction parameters, and Gazebo plugins
+│   │   ├── meshes/                # 3D visual and collision meshes
+│   │   ├── launch/
+│   │   │   └── spawn_robot.launch.py # Spawns AMR instance with namespace
+│   │   └── CMakeLists.txt
+│   ├── amr_fleet/                 # Coordination, planning, and control package
+│   │   ├── amr_fleet/
+│   │   │   ├── __init__.py        # Subpackage exports
+│   │   │   ├── control/           # fleet_controller, local_planner_orca
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── fleet_controller.py # Waypoint dispatcher, dynamic spawn/remove, physics service
+│   │   │   │   └── local_planner_orca.py # 2D ORCA reciprocal velocity obstacles
+│   │   │   ├── planning/          # global_planner, task_allocator
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── global_planner.py   # Rolling-horizon 2D occupancy grid A* planner
+│   │   │   │   └── task_allocator.py   # Market-based P2P contract net task auctioneer
+│   │   │   ├── perception/        # state_publisher, battery_monitor
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── state_publisher.py  # Telemetry broadcaster (20 Hz, BEST_EFFORT)
+│   │   │   │   └── battery_monitor.py  # Kinetic discharge simulation & auto-docking
+│   │   │   └── utils/             # utils, conflict_resolver, intent_publisher
+│   │   │       ├── __init__.py
+│   │   │       ├── utils.py            # Vector2D, geometry, QoS helpers, relay cache
+│   │   │       ├── conflict_resolver.py# Priority negotiation, deadlocks, and aisle tokens
+│   │   │       └── intent_publisher.py # Trajectory intent and token status publisher
+│   │   ├── launch/                # Single and multi-robot launch scripts
+│   │   │   ├── single_robot.launch.py
+│   │   │   ├── fleet_3.launch.py
+│   │   │   ├── fleet_5.launch.py
+│   │   │   └── dashboard.launch.py
+│   │   ├── config/                # Package configuration files
+│   │   ├── test/                  # Ament linter and style tests
+│   │   │   ├── test_flake8.py
+│   │   │   ├── test_copyright.py
+│   │   │   └── test_pep257.py
+│   │   ├── package.xml
+│   │   └── setup.py
+│   ├── amr_worlds/                # Gazebo simulation worlds and static environmental models
+│   │   ├── worlds/
+│   │   │   └── warehouse.world    # 1 kHz ODE physics warehouse world with friction ground plane
+│   │   ├── models/                # Static warehouse rack and barrier models
+│   │   ├── launch/
+│   │   │   └── world.launch.py    # Dedicated Gazebo world launch script
+│   │   ├── CMakeLists.txt
+│   │   └── package.xml
 │   └── amr_dashboard/             # Fleet Monitoring Web Application
-│       ├── package.json
+│       ├── src/
 │       ├── public/
-│       │   └── index.html             # Standalone interactive dashboard with Leaflet map
-│       └── src/
-│           ├── index.js
-│           ├── App.js                 # WebSocket client and state management
-│           └── components/
-│               ├── WarehouseMap.js    # Interactive Leaflet floor plan & AMR markers
-│               ├── FleetStatusTable.js# Real-time peer telemetry table
-│               ├── ConflictLog.js     # Live conflict and deadlock event feed
-│               └── MetricsPanel.js    # Fleet KPI cards and speedup metrics
-├── scripts/                       # Benchmarking and scenario evaluation
+│       │   ├── index.html         # Interactive dashboard with Leaflet map and Control Panel
+│       │   └── control.html       # Dedicated fleet control panel UI
+│       ├── package.json
+│       └── Dockerfile
+├── scripts/                       # Simulation, test, and benchmarking scripts
+│   ├── run_sim.sh                 # Start simulation stack (3 or 5 AMRs)
+│   ├── run_tests.sh               # Run unit tests and colcon workspace tests
+│   ├── record_demo.sh             # Record ROS 2 bags of fleet coordination
 │   ├── benchmark_stop_and_wait.py # Baseline stop-and-wait simulation
 │   ├── benchmark_framework.py     # Decentralized ORCA framework simulation
-│   ├── compare_benchmarks.py      # CSV comparison and KPI verification
-│   └── run_scenarios.sh           # Automated headless runner
-├── tests/                         # Unit test suite (23 tests passing)
+│   └── compare_benchmarks.py      # Benchmark metric comparison and export
+├── docs/                          # Engineering and architecture documentation
+│   ├── architecture.md            # System hierarchy, DDS QoS design, edge compute budgets
+│   ├── ros_topics.md              # Complete ROS 2 topic, service, and message registry
+│   ├── troubleshooting.md         # Diagnostic table and failure remediation procedures
+│   ├── algorithms.md              # Mathematical formulations for A*, ORCA, and deadlocks
+│   └── benchmark.md               # Scenario methodology, metrics, and evaluation results
+├── tests/                         # Pure Python unit test suite (23 passing tests)
 │   ├── test_planner.py            # Tests for A* search, inflation, and rolling horizon
 │   ├── test_conflict.py           # Tests for priority negotiation, deadlocks, and tokens
 │   ├── test_auction.py            # Tests for auction bids, battery thresholds, and docks
@@ -492,35 +511,18 @@ decentralized-amr-fleet/
 
 ---
 
-## Troubleshooting & FAQ
+## Troubleshooting Guide
 
-### 1. `rosbridge_websocket` fails to connect on port 9090
-- Ensure no other service is binding port 9090 (`sudo lsof -i :9090` or `netstat -ano | findstr 9090`).
-- Check that the `rosbridge_server` package is installed (`sudo apt-get install ros-humble-rosbridge-suite`).
-- The web dashboard will automatically display a simulated dynamic telemetry feed if WebSocket connection is not yet established.
-
-### 2. Robots fail to discover peers over DDS
-- Ensure all robots share the same `ROS_DOMAIN_ID` (default is `42`).
-- Check firewall settings to permit UDP multicast traffic (`239.255.0.1` on port 7400+).
-- Set `export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp` for optimal peer-to-peer performance.
-
-### 3. Gazebo GUI runs slowly or crashes on virtual machines
-- Launch simulation in headless mode without GUI:
-  ```bash
-  ros2 launch amr_fleet fleet_3.launch.py gui:=false
-  ```
-- If running under Docker on Linux, ensure X11 socket access is granted:
-  ```bash
-  xhost +local:root
-  ```
-
-### 4. Running benchmarks without ROS 2 installed
-- The benchmark scripts in `scripts/` and unit tests in `tests/` are built with zero-dependency pure Python math primitives in `amr_fleet/utils.py`. You can run them on any operating system with standard Python:
-  ```bash
-  python scripts/benchmark_stop_and_wait.py
-  python scripts/benchmark_framework.py
-  python scripts/compare_benchmarks.py
-  ```
+| Symptom / Error | Root Cause | Solution |
+| :--- | :--- | :--- |
+| **Robots do not move; `cmd_vel` has 0 subscribers** | `diff_drive` plugin failed to load or entity unspawned | Inspect URDF `<gazebo>` plugin block. Confirm `gazebo_ros_diff_drive.so` has `<ros><remapping>cmd_vel:=cmd_vel</remapping></ros>`. Check `/get_model_list` to verify model presence. |
+| **Robots pass through warehouse shelves or each other** | Shelves lack `<collision>` or ODE solver step size is too large (tunneling) | Ensure shelves have `<static>true</static>` and explicit `<collision>` box with high friction. Set ODE `<max_step_size>0.001</max_step_size>` and `<real_time_update_rate>1000</real_time_update_rate>` in `warehouse.world`. |
+| **Robots spin in place or skid uncontrollably** | Wheel friction $\mu_1, \mu_2$ missing or passive casters act as brakes | Add `<gazebo reference="left_wheel">` with $\mu_1=\mu_2=1.0$, $k_p=1\times 10^6, k_d=100$. Add `<gazebo reference="front_caster">` with low friction $\mu_1=\mu_2=0.001$. |
+| **`timeout 3 ros2 topic echo /robot_1/odom` outputs nothing** | Gazebo physics is paused | Call `ros2 service call /unpause_physics std_srvs/srv/Empty "{}"` or resume from the dashboard control panel. |
+| **Deadlock between opposing robots in central corridor** | Head-on reciprocal obstacle infeasible for ORCA alone | ORCA safe-stop will halt the robot; `conflict_resolver` monitors stall $>3\text{s}$, computes composite priority (distance + urgency + battery), and issues a replan detour to the lower-priority robot. |
+| **Dashboard shows "Disconnected" or WebSocket error** | Rosbridge not running or port 9090 blocked | Ensure `docker compose up -d rosbridge` is active and bound to the shared network namespace (`network_mode: "service:simulation"`). |
+| **`colcon build` fails on custom messages** | Python install directory colliding with CMake target | Use `rosidl_generate_interfaces` with explicit dependencies and separate `ament_get_python_install_dir` directory install. |
+| **Unit tests fail on host with `No module named 'rclpy'`** | Host environment lacks ROS 2 Humble packages | All nodes in `amr_fleet` include graceful `try/except ImportError` fallbacks. Core logic (`ORCAPlanner`, `AStarPlanner`, `TaskAllocator`, `ConflictResolver`, `BatteryMonitor`) is 100% pure Python and testable without ROS 2. |
 
 ---
 

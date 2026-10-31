@@ -1,0 +1,43 @@
+# 3-AMR Fleet Configuration for Warehouse Scenario
+fleet_size: 3
+scenario: "central_corridor_chokepoint"
+
+robots:
+  robot_1:
+    namespace: "robot_1"
+    initial_pose:
+      x: -10.0
+      y: 0.0
+      z: 0.05
+      yaw: 0.0
+    initial_battery: 100.0
+    charging_dock: [-12.0, 8.0]
+    waypoints:
+      - [8.0, 0.0]
+      - [-8.0, 0.0]
+
+  robot_2:
+    namespace: "robot_2"
+    initial_pose:
+      x: 10.0
+      y: 0.0
+      z: 0.05
+      yaw: 3.14159
+    initial_battery: 90.0
+    charging_dock: [-12.0, -8.0]
+    waypoints:
+      - [-8.0, 0.0]
+      - [8.0, 0.0]
+
+  robot_3:
+    namespace: "robot_3"
+    initial_pose:
+      x: 0.0
+      y: 8.0
+      z: 0.05
+      yaw: -1.57079
+    initial_battery: 75.0
+    charging_dock: [-12.0, 8.0]
+    waypoints:
+      - [0.0, -6.0]
+      - [0.0, 6.0]

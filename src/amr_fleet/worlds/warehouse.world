@@ -1,11 +1,11 @@
 <?xml version="1.0" ?>
 <sdf version="1.6">
   <world name="warehouse_world">
-    <!-- Physics parameters -->
+    <!-- Physics parameters: 1 kHz update rate with 1ms step size -->
     <physics type="ode">
-      <max_step_size>0.002</max_step_size>
+      <max_step_size>0.001</max_step_size>
       <real_time_factor>1.0</real_time_factor>
-      <real_time_update_rate>500</real_time_update_rate>
+      <real_time_update_rate>1000</real_time_update_rate>
       <ode>
         <solver>
           <type>quick</type>
@@ -21,15 +21,61 @@
       </ode>
     </physics>
 
-    <!-- Lighting -->
-    <include>
-      <uri>model://sun</uri>
-    </include>
+    <!-- Lighting: Inline directional sun light to avoid remote model fetching -->
+    <light type="directional" name="sun">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <attenuation>
+        <range>1000</range>
+        <constant>0.9</constant>
+        <linear>0.01</linear>
+        <quadratic>0.001</quadratic>
+      </attenuation>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
 
-    <!-- Floor Ground Plane -->
-    <include>
-      <uri>model://ground_plane</uri>
-    </include>
+    <!-- Floor Ground Plane with High Friction -->
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>100 100</size>
+            </plane>
+          </geometry>
+          <surface>
+            <friction>
+              <ode>
+                <mu>1.0</mu>
+                <mu2>1.0</mu2>
+              </ode>
+            </friction>
+            <contact>
+              <collide_bitmask>0xffff</collide_bitmask>
+            </contact>
+          </surface>
+        </collision>
+        <visual name="visual">
+          <cast_shadows>false</cast_shadows>
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>100 100</size>
+            </plane>
+          </geometry>
+          <material>
+            <script>
+              <uri>file://media/materials/scripts/gazebo.material</uri>
+              <name>Gazebo/Grey</name>
+            </script>
+          </material>
+        </visual>
+      </link>
+    </model>
 
     <!-- Warehouse Outer Perimeter Walls -->
     <model name="warehouse_outer_walls">
@@ -39,6 +85,10 @@
         <pose>0 15 1.5 0 0 0</pose>
         <collision name="collision">
           <geometry><box><size>30 0.4 3</size></box></geometry>
+          <surface>
+            <friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction>
+            <contact><collide_bitmask>0xffff</collide_bitmask></contact>
+          </surface>
         </collision>
         <visual name="visual">
           <geometry><box><size>30 0.4 3</size></box></geometry>
@@ -50,6 +100,10 @@
         <pose>0 -15 1.5 0 0 0</pose>
         <collision name="collision">
           <geometry><box><size>30 0.4 3</size></box></geometry>
+          <surface>
+            <friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction>
+            <contact><collide_bitmask>0xffff</collide_bitmask></contact>
+          </surface>
         </collision>
         <visual name="visual">
           <geometry><box><size>30 0.4 3</size></box></geometry>
@@ -61,6 +115,10 @@
         <pose>15 0 1.5 0 0 0</pose>
         <collision name="collision">
           <geometry><box><size>0.4 30 3</size></box></geometry>
+          <surface>
+            <friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction>
+            <contact><collide_bitmask>0xffff</collide_bitmask></contact>
+          </surface>
         </collision>
         <visual name="visual">
           <geometry><box><size>0.4 30 3</size></box></geometry>
@@ -72,6 +130,10 @@
         <pose>-15 0 1.5 0 0 0</pose>
         <collision name="collision">
           <geometry><box><size>0.4 30 3</size></box></geometry>
+          <surface>
+            <friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction>
+            <contact><collide_bitmask>0xffff</collide_bitmask></contact>
+          </surface>
         </collision>
         <visual name="visual">
           <geometry><box><size>0.4 30 3</size></box></geometry>
@@ -85,7 +147,13 @@
       <static>true</static>
       <pose>-8 6 1.0 0 0 0</pose>
       <link name="link">
-        <collision name="c"><geometry><box><size>8 1.2 2.0</size></box></geometry></collision>
+        <collision name="c">
+          <geometry><box><size>8 1.2 2.0</size></box></geometry>
+          <surface>
+            <friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction>
+            <contact><collide_bitmask>0xffff</collide_bitmask></contact>
+          </surface>
+        </collision>
         <visual name="v">
           <geometry><box><size>8 1.2 2.0</size></box></geometry>
           <material><ambient>0.2 0.4 0.8 1</ambient><diffuse>0.2 0.5 0.9 1</diffuse></material>
@@ -97,7 +165,13 @@
       <static>true</static>
       <pose>-8 2 1.0 0 0 0</pose>
       <link name="link">
-        <collision name="c"><geometry><box><size>8 1.2 2.0</size></box></geometry></collision>
+        <collision name="c">
+          <geometry><box><size>8 1.2 2.0</size></box></geometry>
+          <surface>
+            <friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction>
+            <contact><collide_bitmask>0xffff</collide_bitmask></contact>
+          </surface>
+        </collision>
         <visual name="v">
           <geometry><box><size>8 1.2 2.0</size></box></geometry>
           <material><ambient>0.2 0.4 0.8 1</ambient><diffuse>0.2 0.5 0.9 1</diffuse></material>
@@ -109,7 +183,13 @@
       <static>true</static>
       <pose>-8 -2 1.0 0 0 0</pose>
       <link name="link">
-        <collision name="c"><geometry><box><size>8 1.2 2.0</size></box></geometry></collision>
+        <collision name="c">
+          <geometry><box><size>8 1.2 2.0</size></box></geometry>
+          <surface>
+            <friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction>
+            <contact><collide_bitmask>0xffff</collide_bitmask></contact>
+          </surface>
+        </collision>
         <visual name="v">
           <geometry><box><size>8 1.2 2.0</size></box></geometry>
           <material><ambient>0.2 0.4 0.8 1</ambient><diffuse>0.2 0.5 0.9 1</diffuse></material>
@@ -121,7 +201,13 @@
       <static>true</static>
       <pose>-8 -6 1.0 0 0 0</pose>
       <link name="link">
-        <collision name="c"><geometry><box><size>8 1.2 2.0</size></box></geometry></collision>
+        <collision name="c">
+          <geometry><box><size>8 1.2 2.0</size></box></geometry>
+          <surface>
+            <friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction>
+            <contact><collide_bitmask>0xffff</collide_bitmask></contact>
+          </surface>
+        </collision>
         <visual name="v">
           <geometry><box><size>8 1.2 2.0</size></box></geometry>
           <material><ambient>0.2 0.4 0.8 1</ambient><diffuse>0.2 0.5 0.9 1</diffuse></material>
@@ -134,7 +220,13 @@
       <static>true</static>
       <pose>8 6 1.0 0 0 0</pose>
       <link name="link">
-        <collision name="c"><geometry><box><size>8 1.2 2.0</size></box></geometry></collision>
+        <collision name="c">
+          <geometry><box><size>8 1.2 2.0</size></box></geometry>
+          <surface>
+            <friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction>
+            <contact><collide_bitmask>0xffff</collide_bitmask></contact>
+          </surface>
+        </collision>
         <visual name="v">
           <geometry><box><size>8 1.2 2.0</size></box></geometry>
           <material><ambient>0.8 0.4 0.2 1</ambient><diffuse>0.9 0.5 0.2 1</diffuse></material>
@@ -146,7 +238,13 @@
       <static>true</static>
       <pose>8 2 1.0 0 0 0</pose>
       <link name="link">
-        <collision name="c"><geometry><box><size>8 1.2 2.0</size></box></geometry></collision>
+        <collision name="c">
+          <geometry><box><size>8 1.2 2.0</size></box></geometry>
+          <surface>
+            <friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction>
+            <contact><collide_bitmask>0xffff</collide_bitmask></contact>
+          </surface>
+        </collision>
         <visual name="v">
           <geometry><box><size>8 1.2 2.0</size></box></geometry>
           <material><ambient>0.8 0.4 0.2 1</ambient><diffuse>0.9 0.5 0.2 1</diffuse></material>
@@ -158,7 +256,13 @@
       <static>true</static>
       <pose>8 -2 1.0 0 0 0</pose>
       <link name="link">
-        <collision name="c"><geometry><box><size>8 1.2 2.0</size></box></geometry></collision>
+        <collision name="c">
+          <geometry><box><size>8 1.2 2.0</size></box></geometry>
+          <surface>
+            <friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction>
+            <contact><collide_bitmask>0xffff</collide_bitmask></contact>
+          </surface>
+        </collision>
         <visual name="v">
           <geometry><box><size>8 1.2 2.0</size></box></geometry>
           <material><ambient>0.8 0.4 0.2 1</ambient><diffuse>0.9 0.5 0.2 1</diffuse></material>
@@ -170,7 +274,13 @@
       <static>true</static>
       <pose>8 -6 1.0 0 0 0</pose>
       <link name="link">
-        <collision name="c"><geometry><box><size>8 1.2 2.0</size></box></geometry></collision>
+        <collision name="c">
+          <geometry><box><size>8 1.2 2.0</size></box></geometry>
+          <surface>
+            <friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction>
+            <contact><collide_bitmask>0xffff</collide_bitmask></contact>
+          </surface>
+        </collision>
         <visual name="v">
           <geometry><box><size>8 1.2 2.0</size></box></geometry>
           <material><ambient>0.8 0.4 0.2 1</ambient><diffuse>0.9 0.5 0.2 1</diffuse></material>
@@ -183,7 +293,13 @@
       <static>true</static>
       <pose>0 3 0.6 0 0 0</pose>
       <link name="link">
-        <collision name="c"><geometry><box><size>1.0 4.0 1.2</size></box></geometry></collision>
+        <collision name="c">
+          <geometry><box><size>1.0 4.0 1.2</size></box></geometry>
+          <surface>
+            <friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction>
+            <contact><collide_bitmask>0xffff</collide_bitmask></contact>
+          </surface>
+        </collision>
         <visual name="v">
           <geometry><box><size>1.0 4.0 1.2</size></box></geometry>
           <material><ambient>0.9 0.9 0.2 1</ambient><diffuse>1.0 0.9 0.3 1</diffuse></material>
@@ -195,7 +311,13 @@
       <static>true</static>
       <pose>0 -3 0.6 0 0 0</pose>
       <link name="link">
-        <collision name="c"><geometry><box><size>1.0 4.0 1.2</size></box></geometry></collision>
+        <collision name="c">
+          <geometry><box><size>1.0 4.0 1.2</size></box></geometry>
+          <surface>
+            <friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction>
+            <contact><collide_bitmask>0xffff</collide_bitmask></contact>
+          </surface>
+        </collision>
         <visual name="v">
           <geometry><box><size>1.0 4.0 1.2</size></box></geometry>
           <material><ambient>0.9 0.9 0.2 1</ambient><diffuse>1.0 0.9 0.3 1</diffuse></material>

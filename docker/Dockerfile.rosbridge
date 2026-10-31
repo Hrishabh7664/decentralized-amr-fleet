@@ -1,0 +1,18 @@
+# Dockerfile.rosbridge - ROSBridge WebSocket Server
+FROM osrf/ros:humble-desktop-full
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV ROS_DISTRO=humble
+SHELL ["/bin/bash", "-c"]
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ros-humble-rosbridge-suite \
+    ros-humble-rmw-cyclonedds-cpp \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /root/ros2_ws
+COPY config/ /root/ros2_ws/config/
+
+EXPOSE 9090
+
+CMD ["/bin/bash", "-c", "source /opt/ros/humble/setup.bash && export CYCLONEDDS_URI=file:///root/ros2_ws/config/cyclonedds.xml && ros2 launch rosbridge_server rosbridge_websocket_launch.xml port:=9090"]

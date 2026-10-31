@@ -16,9 +16,9 @@
 
   <link name="base_link">
     <inertial>
-      <mass value="25.0"/>
+      <mass value="20.0"/>
       <origin xyz="0 0 0.05" rpy="0 0 0"/>
-      <inertia ixx="0.45" ixy="0.0" ixz="0.0" iyy="0.85" iyz="0.0" izz="1.10"/>
+      <inertia ixx="0.3473" ixy="0.0" ixz="0.0" iyy="0.6807" iyz="0.0" izz="0.8667"/>
     </inertial>
     <collision>
       <origin xyz="0 0 0.05" rpy="0 0 0"/>
@@ -40,9 +40,9 @@
   <!-- Left Drive Wheel -->
   <link name="left_wheel">
     <inertial>
-      <mass value="2.0"/>
+      <mass value="1.0"/>
       <origin xyz="0 0 0" rpy="0 0 0"/>
-      <inertia ixx="0.0035" ixy="0" ixz="0" iyy="0.0035" iyz="0" izz="0.0064"/>
+      <inertia ixx="0.001733" ixy="0" ixz="0" iyy="0.0032" iyz="0" izz="0.001733"/>
     </inertial>
     <collision>
       <origin xyz="0 0 0" rpy="1.5707963 0 0"/>
@@ -71,9 +71,9 @@
   <!-- Right Drive Wheel -->
   <link name="right_wheel">
     <inertial>
-      <mass value="2.0"/>
+      <mass value="1.0"/>
       <origin xyz="0 0 0" rpy="0 0 0"/>
-      <inertia ixx="0.0035" ixy="0" ixz="0" iyy="0.0035" iyz="0" izz="0.0064"/>
+      <inertia ixx="0.001733" ixy="0" ixz="0" iyy="0.0032" iyz="0" izz="0.001733"/>
     </inertial>
     <collision>
       <origin xyz="0 0 0" rpy="1.5707963 0 0"/>
@@ -103,7 +103,8 @@
   <link name="front_caster">
     <inertial>
       <mass value="0.5"/>
-      <inertia ixx="0.0001" ixy="0" ixz="0" iyy="0.0001" iyz="0" izz="0.0001"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <inertia ixx="0.00032" ixy="0" ixz="0" iyy="0.00032" iyz="0" izz="0.00032"/>
     </inertial>
     <collision>
       <geometry><sphere radius="0.04"/></geometry>
@@ -113,6 +114,7 @@
       <material name="caster_mat"><color rgba="0.6 0.6 0.6 1.0"/></material>
     </visual>
   </link>
+
   <joint name="front_caster_joint" type="fixed">
     <parent link="base_link"/>
     <child link="front_caster"/>
@@ -123,7 +125,8 @@
   <link name="rear_caster">
     <inertial>
       <mass value="0.5"/>
-      <inertia ixx="0.0001" ixy="0" ixz="0" iyy="0.0001" iyz="0" izz="0.0001"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <inertia ixx="0.00032" ixy="0" ixz="0" iyy="0.00032" iyz="0" izz="0.00032"/>
     </inertial>
     <collision>
       <geometry><sphere radius="0.04"/></geometry>
@@ -133,6 +136,7 @@
       <material name="caster_mat"><color rgba="0.6 0.6 0.6 1.0"/></material>
     </visual>
   </link>
+
   <joint name="rear_caster_joint" type="fixed">
     <parent link="base_link"/>
     <child link="rear_caster"/>
@@ -143,7 +147,8 @@
   <link name="laser_link">
     <inertial>
       <mass value="0.2"/>
-      <inertia ixx="0.0001" ixy="0" ixz="0" iyy="0.0001" iyz="0" izz="0.0001"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <inertia ixx="0.00012" ixy="0" ixz="0" iyy="0.00012" iyz="0" izz="0.00016"/>
     </inertial>
     <visual>
       <geometry><cylinder radius="0.04" length="0.05"/></geometry>
@@ -153,11 +158,61 @@
       <geometry><cylinder radius="0.04" length="0.05"/></geometry>
     </collision>
   </link>
+
   <joint name="laser_joint" type="fixed">
     <parent link="base_link"/>
     <child link="laser_link"/>
     <origin xyz="0.18 0 0.18" rpy="0 0 0"/>
   </joint>
+
+  <!-- Gazebo Material and Contact Properties -->
+  <gazebo reference="base_link">
+    <material>Gazebo/DarkGrey</material>
+    <mu1>0.1</mu1>
+    <mu2>0.1</mu2>
+    <kp>1000000.0</kp>
+    <kd>1.0</kd>
+  </gazebo>
+
+  <gazebo reference="left_wheel">
+    <material>Gazebo/Orange</material>
+    <mu1>1.0</mu1>
+    <mu2>1.0</mu2>
+    <kp>1000000.0</kp>
+    <kd>100.0</kd>
+    <minDepth>0.001</minDepth>
+    <maxVel>0.1</maxVel>
+    <fdir1>1 0 0</fdir1>
+  </gazebo>
+
+  <gazebo reference="right_wheel">
+    <material>Gazebo/Orange</material>
+    <mu1>1.0</mu1>
+    <mu2>1.0</mu2>
+    <kp>1000000.0</kp>
+    <kd>100.0</kd>
+    <minDepth>0.001</minDepth>
+    <maxVel>0.1</maxVel>
+    <fdir1>1 0 0</fdir1>
+  </gazebo>
+
+  <gazebo reference="front_caster">
+    <material>Gazebo/Grey</material>
+    <mu1>0.001</mu1>
+    <mu2>0.001</mu2>
+    <kp>1000000.0</kp>
+    <kd>1.0</kd>
+    <minDepth>0.001</minDepth>
+  </gazebo>
+
+  <gazebo reference="rear_caster">
+    <material>Gazebo/Grey</material>
+    <mu1>0.001</mu1>
+    <mu2>0.001</mu2>
+    <kp>1000000.0</kp>
+    <kd>1.0</kd>
+    <minDepth>0.001</minDepth>
+  </gazebo>
 
   <!-- Gazebo LiDAR Plugin -->
   <gazebo reference="laser_link">
@@ -191,11 +246,26 @@
     </sensor>
   </gazebo>
 
+  <!-- Gazebo Joint State Publisher Plugin -->
+  <gazebo>
+    <plugin name="joint_state_publisher" filename="libgazebo_ros_joint_state_publisher.so">
+      <ros>
+        <namespace>${ns}</namespace>
+        <remapping>joint_states:=joint_states</remapping>
+      </ros>
+      <update_rate>50</update_rate>
+      <joint_name>left_wheel_joint</joint_name>
+      <joint_name>right_wheel_joint</joint_name>
+    </plugin>
+  </gazebo>
+
   <!-- Gazebo Differential Drive Plugin -->
   <gazebo>
     <plugin name="differential_drive_controller" filename="libgazebo_ros_diff_drive.so">
       <ros>
         <namespace>${ns}</namespace>
+        <remapping>cmd_vel:=cmd_vel</remapping>
+        <remapping>odom:=odom</remapping>
       </ros>
       <update_rate>50</update_rate>
       <left_joint>left_wheel_joint</left_joint>

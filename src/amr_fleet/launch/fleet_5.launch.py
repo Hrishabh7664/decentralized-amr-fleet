@@ -6,7 +6,7 @@ Enables high-density decentralized coordination, battery depletion testing, and 
 import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription, DeclareLaunchArgument
+from launch.actions import IncludeLaunchDescription, DeclareLaunchArgument, GroupAction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 
@@ -16,7 +16,11 @@ def generate_launch_description():
     pkg_amr_desc = get_package_share_directory('amr_description')
     pkg_gazebo_ros = get_package_share_directory('gazebo_ros')
 
-    world_path = os.path.join(pkg_amr_fleet, 'worlds', 'warehouse.world')
+    try:
+        pkg_amr_worlds = get_package_share_directory('amr_worlds')
+        world_path = os.path.join(pkg_amr_worlds, 'worlds', 'warehouse.world')
+    except Exception:
+        world_path = os.path.join(pkg_amr_fleet, 'worlds', 'warehouse.world')
     spawn_launch_file = os.path.join(pkg_amr_desc, 'launch', 'spawn_robot.launch.py')
     single_robot_launch_file = os.path.join(pkg_amr_fleet, 'launch', 'single_robot.launch.py')
 
@@ -41,16 +45,21 @@ def generate_launch_description():
     launch_actions = [gui_arg, gazebo_cmd]
 
     for cfg in robot_configs:
-        spawn_cmd = IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(spawn_launch_file),
-            launch_arguments={
-                'robot_name': cfg['id'],
-                'robot_namespace': cfg['id'],
-                'x_pose': cfg['x'],
-                'y_pose': cfg['y'],
-                'z_pose': '0.05',
-                'yaw': cfg['yaw']
-            }.items()
+        spawn_cmd = GroupAction(
+            actions=[
+                IncludeLaunchDescription(
+                    PythonLaunchDescriptionSource(spawn_launch_file),
+                    launch_arguments={
+                        'robot_name': cfg['id'],
+                        'robot_namespace': cfg['id'],
+                        'x_pose': cfg['x'],
+                        'y_pose': cfg['y'],
+                        'z_pose': '0.05',
+                        'yaw': cfg['yaw']
+                    }.items()
+                )
+            ],
+            scoped=True
         )
         stack_cmd = IncludeLaunchDescription(
             PythonLaunchDescriptionSource(single_robot_launch_file),

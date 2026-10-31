@@ -10,7 +10,7 @@ import json
 import time
 from typing import List, Optional, Any
 
-from amr_fleet.utils import Vector2D, get_intent_qos
+from amr_fleet.utils import Vector2D, get_intent_qos, MessageRelayCache
 
 
 class IntentPublisherNode:
@@ -34,15 +34,19 @@ class IntentPublisherNode:
         self.has_token: bool = False
         self.reserved_corridor_id: str = ""
 
+        # Multi-Hop Mesh Relay Cache for intent forwarding
+        self.relay_cache = MessageRelayCache(ttl_seconds=10.0, max_cache_size=1000)
+
         from nav_msgs.msg import Path
         from geometry_msgs.msg import Point
         from std_msgs.msg import String, Float32
 
         qos = get_intent_qos()
+        qos_intent = qos if qos is not None else 10
         if self.has_custom_msg and self.RobotIntent is not None:
-            self.intent_pub = self.node.create_publisher(self.RobotIntent, f'/fleet/{self.robot_id}/intent', qos)
+            self.intent_pub = self.node.create_publisher(self.RobotIntent, f'/fleet/{self.robot_id}/intent', qos_intent)
         else:
-            self.intent_pub = self.node.create_publisher(String, f'/fleet/{self.robot_id}/intent', 10)
+            self.intent_pub = self.node.create_publisher(String, f'/fleet/{self.robot_id}/intent', qos_intent)
 
         self.node.create_subscription(Path, f'/fleet/{self.robot_id}/plan', self.plan_callback, 10)
         self.node.create_subscription(Path, f'/{self.robot_id}/plan', self.plan_callback, 10)

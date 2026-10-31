@@ -1,11 +1,9 @@
-version: '3.8'
-
 services:
   # 1. Gazebo Classic Warehouse Simulation + Decentralized 3-AMR Stack
   simulation:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: docker/Dockerfile.simulation
     container_name: amr_fleet_simulation
     ports:
       - "3000:3000"
@@ -14,6 +12,8 @@ services:
     environment:
       - ROS_DOMAIN_ID=42
       - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+      - CYCLONEDDS_URI=file:///root/ros2_ws/config/cyclonedds.xml
+      - GAZEBO_MODEL_DATABASE_URI=
       - DISPLAY=${DISPLAY:-:0}
       - QT_X11_NO_MITSHM=1
     volumes:
@@ -23,6 +23,7 @@ services:
       /bin/bash -c "
         source /opt/ros/humble/setup.bash &&
         source /root/ros2_ws/install/setup.bash &&
+        export CYCLONEDDS_URI=file:///root/ros2_ws/config/cyclonedds.xml &&
         ros2 launch amr_fleet fleet_3.launch.py gui:=false
       "
     restart: unless-stopped
@@ -31,12 +32,13 @@ services:
   rosbridge:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: docker/Dockerfile.rosbridge
     container_name: amr_rosbridge
     network_mode: "service:simulation"
     environment:
       - ROS_DOMAIN_ID=42
       - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+      - CYCLONEDDS_URI=file:///root/ros2_ws/config/cyclonedds.xml
     command: >
       /bin/bash -c "
         source /opt/ros/humble/setup.bash &&
@@ -50,13 +52,9 @@ services:
   dashboard:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: docker/Dockerfile.dashboard
     container_name: amr_dashboard
     network_mode: "service:simulation"
-    command: >
-      /bin/bash -c "
-        python3 -m http.server 3000 --directory /root/ros2_ws/src/amr_dashboard/public
-      "
     restart: unless-stopped
     depends_on:
       - rosbridge
@@ -65,7 +63,7 @@ services:
   benchmark:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: docker/Dockerfile.simulation
     container_name: amr_benchmark_runner
     profiles: ["benchmark"]
     volumes:

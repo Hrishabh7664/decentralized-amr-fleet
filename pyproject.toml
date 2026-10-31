@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "decentralized-amr-fleet"
+version = "1.0.0"
+description = "Production-Grade Decentralized Multi-AMR Fleet Coordination and ORCA Collision-Avoidance Stack"
+authors = [{ name = "Hrishabh", email = "hrishabh@swarm.local" }]
+license = { text = "Apache-2.0" }
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.22.0",
+    "pyyaml>=6.0",
+    "pytest>=7.0.0",
+]
+
+[tool.black]
+line-length = 120
+target-version = ["py310"]
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.git
+  | \.pytest_cache
+  | build
+  | install
+  | log
+  | node_modules
+)/
+'''
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+exclude = [
+    ".git",
+    ".pytest_cache",
+    "build",
+    "install",
+    "log",
+    "node_modules",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]

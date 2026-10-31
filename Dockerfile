@@ -44,6 +44,7 @@ RUN mkdir -p ${WORKSPACE}/src
 # Copy project source into container
 COPY src/ ${WORKSPACE}/src/
 COPY scripts/ ${WORKSPACE}/scripts/
+COPY config/ ${WORKSPACE}/config/
 
 # Initialize rosdep and install package dependencies
 RUN source /opt/ros/${ROS_DISTRO}/setup.bash \
@@ -59,7 +60,8 @@ RUN source /opt/ros/${ROS_DISTRO}/setup.bash \
 # Source workspace on entry
 RUN echo "source /opt/ros/${ROS_DISTRO}/setup.bash" >> /root/.bashrc \
     && echo "source ${WORKSPACE}/install/setup.bash" >> /root/.bashrc \
-    && echo "export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp" >> /root/.bashrc
+    && echo "export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp" >> /root/.bashrc \
+    && echo "export CYCLONEDDS_URI=file:///root/ros2_ws/config/cyclonedds.xml" >> /root/.bashrc
 
 # Expose ports:
 # 9090: rosbridge WebSocket

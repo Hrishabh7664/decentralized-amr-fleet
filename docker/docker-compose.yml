@@ -1,0 +1,76 @@
+services:
+  # 1. Gazebo Classic Simulation + Decentralized Fleet Control Stack
+  simulation:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.simulation
+    container_name: amr_fleet_simulation
+    ports:
+      - "3000:3000"
+      - "9090:9090"
+      - "11345:11345"
+    environment:
+      - ROS_DOMAIN_ID=42
+      - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+      - CYCLONEDDS_URI=file:///root/ros2_ws/config/cyclonedds.xml
+      - GAZEBO_MODEL_DATABASE_URI=
+      - DISPLAY=${DISPLAY:-:0}
+      - QT_X11_NO_MITSHM=1
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - ../results:/root/ros2_ws/results:rw
+    command: >
+      /bin/bash -c "
+        source /opt/ros/humble/setup.bash &&
+        source /root/ros2_ws/install/setup.bash &&
+        export CYCLONEDDS_URI=file:///root/ros2_ws/config/cyclonedds.xml &&
+        ros2 launch amr_fleet fleet_3.launch.py gui:=false
+      "
+    restart: unless-stopped
+
+  # 2. ROSBridge Suite WebSocket Server (Port 9090)
+  rosbridge:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.rosbridge
+    container_name: amr_rosbridge
+    network_mode: "service:simulation"
+    environment:
+      - ROS_DOMAIN_ID=42
+      - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+      - CYCLONEDDS_URI=file:///root/ros2_ws/config/cyclonedds.xml
+    command: >
+      /bin/bash -c "
+        source /opt/ros/humble/setup.bash &&
+        ros2 launch rosbridge_server rosbridge_websocket_launch.xml port:=9090
+      "
+    restart: unless-stopped
+    depends_on:
+      - simulation
+
+  # 3. Web Monitoring Dashboard UI (Port 3000)
+  dashboard:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.dashboard
+    container_name: amr_dashboard
+    network_mode: "service:simulation"
+    restart: unless-stopped
+    depends_on:
+      - rosbridge
+
+  # 4. Automated Benchmarking Suite
+  benchmark:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.simulation
+    container_name: amr_benchmark_runner
+    profiles: ["benchmark"]
+    volumes:
+      - ../results:/root/ros2_ws/results:rw
+    command: >
+      /bin/bash -c "
+        python3 /root/ros2_ws/scripts/benchmark_stop_and_wait.py &&
+        python3 /root/ros2_ws/scripts/benchmark_framework.py &&
+        python3 /root/ros2_ws/scripts/compare_benchmarks.py
+      "
