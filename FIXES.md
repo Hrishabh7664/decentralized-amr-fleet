@@ -254,6 +254,149 @@ tests\test_section_a.py .                                                [100%]
 
 ---
 
+## C1: `battery_monitor.py` Atomic Charging Station Claims & Contention Arbitration
+
+### 1. Original Bug
+When multiple AMRs simultaneously required charging, both selected the nearest dock and published `CLAIM` messages concurrently without checking or handling cross-traffic contention. As a result, both robots committed to the same station dock, racing to the identical charger.
+
+### 2. Protocol & Arbitration
+- `CLAIM:{robot_id}:{station_id}:{timestamp}` published over `/fleet/charging_stations`.
+- In `station_callback`: When a peer's `CLAIM` matches the station currently claimed by this robot, first-come-wins arbitration evaluates the timestamps (breaking ties deterministically by `robot_id`).
+- If this robot loses the contention, it immediately backs off, vacates the dock reservation, re-evaluates the cost function for remaining available stations, and dispatches a new claim for an alternate dock.
+
+### 3. Failing Test Output
+```
+================================== FAILURES ===================================
+____ TestSectionC.test_c1_atomic_station_claims_and_contention_arbitration ____
+
+self = <test_section_c.TestSectionC testMethod=test_c1_atomic_station_claims_and_contention_arbitration>
+...
+>       self.assertNotEqual(
+            bm_2.monitor.assigned_station.station_id, "station_east",
+            "Robot 2 failed to back off and re-select upon losing claim contention!"
+        )
+E       AssertionError: 'station_east' == 'station_east' : Robot 2 failed to back off and re-select upon losing claim contention!
+
+tests\test_section_c.py:124: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_section_c.py::TestSectionC::test_c1_atomic_station_claims_and_contention_arbitration
+======================= 1 failed, 2 deselected in 0.18s =======================
+```
+
+### 4. Passing Test Output
+**Command:**
+```powershell
+.\.venv\Scripts\pytest.exe tests/test_section_c.py -k test_c1
+```
+**Output:**
+```
+============================= test session starts =============================
+platform win32 -- Python 3.12.14, pytest-9.2.0, pluggy-1.7.0
+rootdir: C:\Users\hrishabh\githubmy\SWARM
+configfile: pyproject.toml
+collected 3 items / 2 deselected / 1 selected
+
+tests\test_section_c.py .                                                [100%]
+
+======================= 1 passed, 2 deselected in 0.06s =======================
+```
+
+---
+
+## C2: `battery_monitor.py` Occupancy Lease & Heartbeat Timeout
+
+### 1. Original Bug
+If a robot crashed, shut down, or disconnected while occupying or en route to a charging station, the dock remained permanently marked as occupied (`is_occupied=True`), stranding other AMRs and permanently reducing charging capacity.
+
+### 2. Required Fix
+- Added `last_heartbeat` tracking to `ChargingStation`.
+- Active occupants re-broadcast `HEARTBEAT:{robot_id}:{station_id}:{timestamp}` every 2 seconds on `/fleet/charging_stations`.
+- All monitor nodes run `prune_stale_leases(timeout_s=6.0)` on every tick, evicting any station occupied by a silent peer after 6.0 seconds of missed heartbeats.
+
+### 3. Failing Test Output
+```
+================================== FAILURES ===================================
+_________ TestSectionC.test_c2_dock_lease_heartbeat_timeout_on_crash __________
+
+self = <test_section_c.TestSectionC testMethod=test_c2_dock_lease_heartbeat_timeout_on_crash>
+...
+>       monitor.prune_stale_leases(timeout_s=6.0, current_time=base_time + 4.0)
+E       AttributeError: 'BatteryMonitor' object has no attribute 'prune_stale_leases'
+
+tests\test_section_c.py:147: AttributeError
+=========================== short test summary info ===========================
+FAILED tests/test_section_c.py::TestSectionC::test_c2_dock_lease_heartbeat_timeout_on_crash
+======================= 1 failed, 2 deselected in 0.18s =======================
+```
+
+### 4. Passing Test Output
+**Command:**
+```powershell
+.\.venv\Scripts\pytest.exe tests/test_section_c.py -k test_c2
+```
+**Output:**
+```
+============================= test session starts =============================
+platform win32 -- Python 3.12.14, pytest-9.2.0, pluggy-1.7.0
+rootdir: C:\Users\hrishabh\githubmy\SWARM
+configfile: pyproject.toml
+collected 3 items / 2 deselected / 1 selected
+
+tests\test_section_c.py .                                                [100%]
+
+======================= 1 passed, 2 deselected in 0.05s =======================
+```
+
+---
+
+## C3: `battery_monitor.py` Charging State Machine Hysteresis & Debounce
+
+### 1. Original Bug
+The charging state machine stopped charging at 95%, but had no hysteresis lower bound. Any noise or minor discharge that brought the level slightly below 95% (e.g. 94.8% -> 95.1% -> 94.9%) caused rapid fluttering between charging and uncharging on every cycle.
+
+### 2. Required Fix
+Introduced hysteresis boundaries:
+- `stop_charging_threshold = 95.0%`
+- `start_charging_threshold = 90.0%`
+Once full charge is achieved (>= 95%), the battery monitor will not re-enter charging mode while hovering above 90.0%, preventing chatter.
+
+### 3. Failing Test Output
+```
+================================== FAILURES ===================================
+____________ TestSectionC.test_c3_charging_hysteresis_and_debounce ____________
+
+self = <test_section_c.TestSectionC testMethod=test_c3_charging_hysteresis_and_debounce>
+...
+>       self.assertEqual(toggle_count, 0, f"Charging toggled {toggle_count} times around 95%!")
+E       AssertionError: 5 != 0 : Charging toggled 5 times around 95%!
+
+tests\test_section_c.py:80: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_section_c.py::TestSectionC::test_c3_charging_hysteresis_and_debounce
+============================== 1 failed in 0.17s ==============================
+```
+
+### 4. Passing Test Output
+**Command:**
+```powershell
+.\.venv\Scripts\pytest.exe tests/test_section_c.py -k test_c3
+```
+**Output:**
+```
+============================= test session starts =============================
+platform win32 -- Python 3.12.14, pytest-9.2.0, pluggy-1.7.0
+rootdir: C:\Users\hrishabh\githubmy\SWARM
+configfile: pyproject.toml
+collected 1 item
+
+tests\test_section_c.py .                                                [100%]
+
+============================== 1 passed in 0.05s ==============================
+```
+
+
+---
+
 ## A4: `intent_publisher.py` Subscribes to Goal Topic
 
 ### 1. Original Bug
@@ -563,6 +706,149 @@ tests\test_section_b.py .                                                [100%]
 
 ======================= 1 passed, 3 deselected in 0.06s =======================
 ```
+
+---
+
+## C1: `battery_monitor.py` Atomic Charging Station Claims & Contention Arbitration
+
+### 1. Original Bug
+When multiple AMRs simultaneously required charging, both selected the nearest dock and published `CLAIM` messages concurrently without checking or handling cross-traffic contention. As a result, both robots committed to the same station dock, racing to the identical charger.
+
+### 2. Protocol & Arbitration
+- `CLAIM:{robot_id}:{station_id}:{timestamp}` published over `/fleet/charging_stations`.
+- In `station_callback`: When a peer's `CLAIM` matches the station currently claimed by this robot, first-come-wins arbitration evaluates the timestamps (breaking ties deterministically by `robot_id`).
+- If this robot loses the contention, it immediately backs off, vacates the dock reservation, re-evaluates the cost function for remaining available stations, and dispatches a new claim for an alternate dock.
+
+### 3. Failing Test Output
+```
+================================== FAILURES ===================================
+____ TestSectionC.test_c1_atomic_station_claims_and_contention_arbitration ____
+
+self = <test_section_c.TestSectionC testMethod=test_c1_atomic_station_claims_and_contention_arbitration>
+...
+>       self.assertNotEqual(
+            bm_2.monitor.assigned_station.station_id, "station_east",
+            "Robot 2 failed to back off and re-select upon losing claim contention!"
+        )
+E       AssertionError: 'station_east' == 'station_east' : Robot 2 failed to back off and re-select upon losing claim contention!
+
+tests\test_section_c.py:124: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_section_c.py::TestSectionC::test_c1_atomic_station_claims_and_contention_arbitration
+======================= 1 failed, 2 deselected in 0.18s =======================
+```
+
+### 4. Passing Test Output
+**Command:**
+```powershell
+.\.venv\Scripts\pytest.exe tests/test_section_c.py -k test_c1
+```
+**Output:**
+```
+============================= test session starts =============================
+platform win32 -- Python 3.12.14, pytest-9.2.0, pluggy-1.7.0
+rootdir: C:\Users\hrishabh\githubmy\SWARM
+configfile: pyproject.toml
+collected 3 items / 2 deselected / 1 selected
+
+tests\test_section_c.py .                                                [100%]
+
+======================= 1 passed, 2 deselected in 0.06s =======================
+```
+
+---
+
+## C2: `battery_monitor.py` Occupancy Lease & Heartbeat Timeout
+
+### 1. Original Bug
+If a robot crashed, shut down, or disconnected while occupying or en route to a charging station, the dock remained permanently marked as occupied (`is_occupied=True`), stranding other AMRs and permanently reducing charging capacity.
+
+### 2. Required Fix
+- Added `last_heartbeat` tracking to `ChargingStation`.
+- Active occupants re-broadcast `HEARTBEAT:{robot_id}:{station_id}:{timestamp}` every 2 seconds on `/fleet/charging_stations`.
+- All monitor nodes run `prune_stale_leases(timeout_s=6.0)` on every tick, evicting any station occupied by a silent peer after 6.0 seconds of missed heartbeats.
+
+### 3. Failing Test Output
+```
+================================== FAILURES ===================================
+_________ TestSectionC.test_c2_dock_lease_heartbeat_timeout_on_crash __________
+
+self = <test_section_c.TestSectionC testMethod=test_c2_dock_lease_heartbeat_timeout_on_crash>
+...
+>       monitor.prune_stale_leases(timeout_s=6.0, current_time=base_time + 4.0)
+E       AttributeError: 'BatteryMonitor' object has no attribute 'prune_stale_leases'
+
+tests\test_section_c.py:147: AttributeError
+=========================== short test summary info ===========================
+FAILED tests/test_section_c.py::TestSectionC::test_c2_dock_lease_heartbeat_timeout_on_crash
+======================= 1 failed, 2 deselected in 0.18s =======================
+```
+
+### 4. Passing Test Output
+**Command:**
+```powershell
+.\.venv\Scripts\pytest.exe tests/test_section_c.py -k test_c2
+```
+**Output:**
+```
+============================= test session starts =============================
+platform win32 -- Python 3.12.14, pytest-9.2.0, pluggy-1.7.0
+rootdir: C:\Users\hrishabh\githubmy\SWARM
+configfile: pyproject.toml
+collected 3 items / 2 deselected / 1 selected
+
+tests\test_section_c.py .                                                [100%]
+
+======================= 1 passed, 2 deselected in 0.05s =======================
+```
+
+---
+
+## C3: `battery_monitor.py` Charging State Machine Hysteresis & Debounce
+
+### 1. Original Bug
+The charging state machine stopped charging at 95%, but had no hysteresis lower bound. Any noise or minor discharge that brought the level slightly below 95% (e.g. 94.8% -> 95.1% -> 94.9%) caused rapid fluttering between charging and uncharging on every cycle.
+
+### 2. Required Fix
+Introduced hysteresis boundaries:
+- `stop_charging_threshold = 95.0%`
+- `start_charging_threshold = 90.0%`
+Once full charge is achieved (>= 95%), the battery monitor will not re-enter charging mode while hovering above 90.0%, preventing chatter.
+
+### 3. Failing Test Output
+```
+================================== FAILURES ===================================
+____________ TestSectionC.test_c3_charging_hysteresis_and_debounce ____________
+
+self = <test_section_c.TestSectionC testMethod=test_c3_charging_hysteresis_and_debounce>
+...
+>       self.assertEqual(toggle_count, 0, f"Charging toggled {toggle_count} times around 95%!")
+E       AssertionError: 5 != 0 : Charging toggled 5 times around 95%!
+
+tests\test_section_c.py:80: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_section_c.py::TestSectionC::test_c3_charging_hysteresis_and_debounce
+============================== 1 failed in 0.17s ==============================
+```
+
+### 4. Passing Test Output
+**Command:**
+```powershell
+.\.venv\Scripts\pytest.exe tests/test_section_c.py -k test_c3
+```
+**Output:**
+```
+============================= test session starts =============================
+platform win32 -- Python 3.12.14, pytest-9.2.0, pluggy-1.7.0
+rootdir: C:\Users\hrishabh\githubmy\SWARM
+configfile: pyproject.toml
+collected 1 item
+
+tests\test_section_c.py .                                                [100%]
+
+============================== 1 passed in 0.05s ==============================
+```
+
 
 
 
