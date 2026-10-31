@@ -252,4 +252,40 @@ tests\test_section_a.py .                                                [100%]
 ======================= 1 passed, 3 deselected in 0.06s =======================
 ```
 
+---
+
+## A4: `intent_publisher.py` Subscribes to Goal Topic
+
+### 1. Original Bug
+Navigation goals are dispatched by `fleet_controller` and `task_allocator` on `/fleet/{robot_id}/goal`. If `intent_publisher` only subscribed to `/{robot_id}/goal`, incoming fleet goals were dropped, causing `current_goal` to remain at default `(0, 0)`.
+
+### 2. Topic Alignment
+- **Publishers**:
+  - `fleet_controller.py:107`: `self.create_publisher(Point, f'/fleet/{r_id}/goal', 10)`
+  - `battery_monitor.py:117`: `self.create_publisher(Point, f'/fleet/{self.robot_id}/goal', 10)`
+  - `task_allocator.py:115`: `self.create_publisher(Point, f'/fleet/{self.robot_id}/goal', 10)`
+- **Subscriber (`intent_publisher.py:49-50`)**:
+  ```python
+  self.node.create_subscription(Point, f'/fleet/{self.robot_id}/goal', self.goal_callback, 10)
+  self.node.create_subscription(Point, f'/{self.robot_id}/goal', self.goal_callback, 10)
+  ```
+  *Aligned topic: `/fleet/{robot_id}/goal` (with fallback on `/{robot_id}/goal`).*
+
+### 3. Test & Verification
+Regression test `test_a4_intent_publisher_subscribes_to_goal` asserts that goals published on both topics correctly update `current_goal` and are reflected in `/fleet/{robot_id}/intent`.
+
+**Passing Test Output:**
+```
+============================= test session starts =============================
+platform win32 -- Python 3.12.14, pytest-9.2.0, pluggy-1.7.0
+rootdir: C:\Users\hrishabh\githubmy\SWARM
+configfile: pyproject.toml
+collected 5 items / 4 deselected / 1 selected
+
+tests\test_section_a.py .                                                [100%]
+
+======================= 1 passed, 4 deselected in 0.05s =======================
+```
+
+
 

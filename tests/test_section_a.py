@@ -160,6 +160,39 @@ class TestSectionA(unittest.TestCase):
         payload = json.loads(last_msg.data)
         self.assertEqual(len(payload["path"]), 3)
 
+    def test_a4_intent_publisher_subscribes_to_goal(self):
+        """
+        [A4 Regression Test]
+        Verify that IntentPublisher receives goals dispatched on /fleet/{robot_id}/goal
+        as well as legacy /{robot_id}/goal, updating current_goal from (0,0) to target coordinates.
+        """
+        from amr_fleet.utils.intent_publisher import IntentPublisherNode
+
+        node = MockNode("intent_publisher_node", bus=self.bus)
+        node.declare_parameter("robot_id", "robot_1")
+        node.declare_parameter("publish_rate_hz", 2.0)
+
+        ip = IntentPublisherNode(node)
+        self.assertEqual(ip.current_goal.x, 0.0)
+        self.assertEqual(ip.current_goal.y, 0.0)
+
+        # Dispatch real goal from fleet controller/task allocator topic
+        self.bus.dispatch("/fleet/robot_1/goal", Point(x=12.5, y=-4.0))
+        self.assertAlmostEqual(ip.current_goal.x, 12.5, delta=0.01)
+        self.assertAlmostEqual(ip.current_goal.y, -4.0, delta=0.01)
+
+        # Dispatch on legacy topic
+        self.bus.dispatch("/robot_1/goal", Point(x=15.0, y=-2.0))
+        self.assertAlmostEqual(ip.current_goal.x, 15.0, delta=0.01)
+        self.assertAlmostEqual(ip.current_goal.y, -2.0, delta=0.01)
+
+        ip.publish_intent()
+        intent_pubs = [p for p in node.publishers if p.topic == "/fleet/robot_1/intent"]
+        last_msg = intent_pubs[0].published_messages[-1]
+        payload = json.loads(last_msg.data)
+        self.assertAlmostEqual(payload["goal"]["x"], 15.0, delta=0.01)
+        self.assertAlmostEqual(payload["goal"]["y"], -2.0, delta=0.01)
+
 
 if __name__ == '__main__':
     unittest.main()
