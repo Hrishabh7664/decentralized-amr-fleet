@@ -145,8 +145,9 @@ class MockNode:
         return self._name
 
     def declare_parameter(self, name: str, default: Any = None) -> Any:
-        self.parameters[name] = default
-        return default
+        if name not in self.parameters:
+            self.parameters[name] = default
+        return self.parameters[name]
 
     def get_parameter(self, name: str) -> MockParameter:
         return MockParameter(self.parameters.get(name, ""))
@@ -324,3 +325,4 @@ def install_ros_mocks():
     nav_msgs_msg.Path = Path
     nav_msgs_msg.Odometry = Odometry
     nav_msgs_msg.OccupancyGrid = OccupancyGrid
+

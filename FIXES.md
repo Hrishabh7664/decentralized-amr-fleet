@@ -287,5 +287,96 @@ tests\test_section_a.py .                                                [100%]
 ======================= 1 passed, 4 deselected in 0.05s =======================
 ```
 
+---
+
+## A5: `conflict_resolver.py` Priority and Token Status Publisher Alignment
+
+### 1. Original Bug
+`intent_publisher` subscribed to `/fleet/{robot_id}/priority` and `/fleet/{robot_id}/token_status`, but nothing in `conflict_resolver.py` published these values. As a consequence, `intent_publisher`'s priority score was always stuck at `0.5` and `has_token` was always `False`.
+
+### 2. Topic Alignment
+- **Publishers (`conflict_resolver.py:216-217`)**:
+  ```python
+  self.priority_pub = self.node.create_publisher(Float32, f'/fleet/{self.robot_id}/priority', 10)
+  self.token_pub = self.node.create_publisher(String, f'/fleet/{self.robot_id}/token_status', 10)
+  ```
+  *Published in `resolution_loop` (`Float32(data=my_priority)`) and upon token acquisition/release (`String(data=f"{corridor_id}:HELD")` / `RELEASED`).*
+- **Subscribers (`intent_publisher.py:51-52`)**:
+  ```python
+  self.node.create_subscription(Float32, f'/fleet/{self.robot_id}/priority', self.priority_callback, 10)
+  self.node.create_subscription(String, f'/fleet/{self.robot_id}/token_status', self.token_callback, 10)
+  ```
+
+### 3. Failing Test Output
+```
+================================== FAILURES ===================================
+_ TestSectionA.test_a5_conflict_resolver_publishes_priority_and_token_status __
+
+self = <test_section_a.TestSectionA testMethod=test_a5_conflict_resolver_publishes_priority_and_token_status>
+
+    def test_a5_conflict_resolver_publishes_priority_and_token_status(self):
+        ...
+        priority_pubs = [p for p in cr_node.publishers if p.topic == "/fleet/robot_1/priority"]
+>       self.assertTrue(len(priority_pubs) > 0, "ConflictResolverNode lacks /fleet/{robot_id}/priority publisher!")
+E       AssertionError: False is not true : ConflictResolverNode lacks /fleet/{robot_id}/priority publisher!
+
+tests\test_section_a.py:220: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_section_a.py::TestSectionA::test_a5_conflict_resolver_publishes_priority_and_token_status
+======================= 1 failed, 5 deselected in 0.19s =======================
+```
+
+### 4. Fix Applied
+```diff
+--- a/src/amr_fleet/amr_fleet/utils/conflict_resolver.py
++++ b/src/amr_fleet/amr_fleet/utils/conflict_resolver.py
+@@ -215,2 +215,4 @@
+         self.replan_pub = self.node.create_publisher(Point, f'/fleet/{self.robot_id}/replan_trigger', 10)
++        self.priority_pub = self.node.create_publisher(Float32, f'/fleet/{self.robot_id}/priority', 10)
++        self.token_pub = self.node.create_publisher(String, f'/fleet/{self.robot_id}/token_status', 10)
+@@ -277,2 +279,20 @@
++    def request_corridor_token(self, corridor_id: str) -> bool:
++        """Request corridor token and broadcast status."""
++        granted = self.resolver.request_corridor_token(corridor_id)
++        if granted:
++            msg = String()
++            msg.data = f"{corridor_id}:HELD"
++            self.token_pub.publish(msg)
++        return granted
++
++    def release_corridor_token(self, corridor_id: str) -> None:
++        """Release corridor token and broadcast status."""
++        self.resolver.release_corridor_token(corridor_id)
++        msg = String()
++        msg.data = f"{corridor_id}:RELEASED"
++        self.token_pub.publish(msg)
++
+     def resolution_loop(self) -> None:
+         ...
+         my_priority = self.resolver.compute_composite_priority(dist_to_goal, 0.8, self.battery_pct)
++        p_msg = Float32()
++        p_msg.data = float(my_priority)
++        self.priority_pub.publish(p_msg)
+```
+
+### 5. Passing Test Output
+**Command:**
+```powershell
+.\.venv\Scripts\pytest.exe tests/test_section_a.py -k test_a5
+```
+**Output:**
+```
+============================= test session starts =============================
+platform win32 -- Python 3.12.14, pytest-9.2.0, pluggy-1.7.0
+rootdir: C:\Users\hrishabh\githubmy\SWARM
+configfile: pyproject.toml
+collected 6 items / 5 deselected / 1 selected
+
+tests\test_section_a.py .                                                [100%]
+
+======================= 1 passed, 5 deselected in 0.05s =======================
+```
+
+
 
 

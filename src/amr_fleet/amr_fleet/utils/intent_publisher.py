@@ -80,7 +80,7 @@ class IntentPublisherNode:
             parts = msg.data.split(':')
             if len(parts) >= 2:
                 self.reserved_corridor_id = parts[0]
-                self.has_token = (parts[1].upper() == "HELD")
+                self.has_token = (parts[1].upper() in ("HELD", "ACQUIRED"))
         except Exception as e:
             self.node.get_logger().debug(f"Token callback parse: {e}")
 

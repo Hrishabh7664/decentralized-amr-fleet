@@ -32,6 +32,7 @@ from mock_ros import (
 
 install_ros_mocks()
 
+from amr_fleet.utils import Vector2D
 from amr_fleet.perception.state_publisher import StatePublisherNode
 from amr_fleet.perception.battery_monitor import BatteryMonitorNode
 
@@ -192,6 +193,47 @@ class TestSectionA(unittest.TestCase):
         payload = json.loads(last_msg.data)
         self.assertAlmostEqual(payload["goal"]["x"], 15.0, delta=0.01)
         self.assertAlmostEqual(payload["goal"]["y"], -2.0, delta=0.01)
+
+    def test_a5_conflict_resolver_publishes_priority_and_token_status(self):
+        """
+        [A5 Regression Test]
+        Verify that ConflictResolver publishes dynamic priority on /fleet/{robot_id}/priority
+        and corridor token status on /fleet/{robot_id}/token_status, and IntentPublisher
+        receives and broadcasts both in /fleet/{robot_id}/intent.
+        """
+        from amr_fleet.utils.conflict_resolver import ConflictResolverNode
+        from amr_fleet.utils.intent_publisher import IntentPublisherNode
+
+        cr_node = MockNode("conflict_resolver_node", bus=self.bus)
+        cr_node.declare_parameter("robot_id", "robot_1")
+        cr_node.declare_parameter("safety_dist", 0.8)
+
+        ip_node = MockNode("intent_publisher_node", bus=self.bus)
+        ip_node.declare_parameter("robot_id", "robot_1")
+        ip_node.declare_parameter("publish_rate_hz", 2.0)
+
+        cr = ConflictResolverNode(cr_node)
+        ip = IntentPublisherNode(ip_node)
+
+        # In un-fixed code, ConflictResolverNode does not have priority_pub or token_pub
+        priority_pubs = [p for p in cr_node.publishers if p.topic == "/fleet/robot_1/priority"]
+        token_pubs = [p for p in cr_node.publishers if p.topic == "/fleet/robot_1/token_status"]
+        self.assertTrue(len(priority_pubs) > 0, "ConflictResolverNode lacks /fleet/{robot_id}/priority publisher!")
+        self.assertTrue(len(token_pubs) > 0, "ConflictResolverNode lacks /fleet/{robot_id}/token_status publisher!")
+
+        # Set goal and battery to trigger resolution_loop priority calculation
+        cr.goal_pos = Vector2D(5.0, 0.0)
+        cr.current_pos = Vector2D(0.0, 0.0)  # dist_to_goal = 5.0
+        cr.battery_pct = 80.0
+        cr.resolution_loop()
+
+        # Check that priority was published and received by intent publisher
+        self.assertNotEqual(ip.priority_score, 0.5, "IntentPublisher priority was not updated by ConflictResolver!")
+
+        # Trigger token acquisition and check token publication
+        cr.request_corridor_token("corridor_main")
+        self.assertTrue(ip.has_token, "IntentPublisher has_token was not updated to True!")
+        self.assertEqual(ip.reserved_corridor_id, "corridor_main")
 
 
 if __name__ == '__main__':
